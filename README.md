@@ -28,6 +28,9 @@ Click a thumbnail to view the full screenshot.
 
 Download a package from [GitHub Releases](https://github.com/nicholas-ochoa/OpenSC2K/releases).
 There are packages for Windows x64 and arm64, Linux x64 and arm64, and macOS (one app for Intel and Apple Silicon).
+On Windows and Linux, the x64 packages require an x86_64 CPU with SSE4.2, as required
+by Godot 4.7. OpenSC2K does not publish a 32-bit package. See the [Godot 4.7 system
+requirements](https://docs.godotengine.org/en/4.7/about/system_requirements.html).
 See the [installation instructions](docs/install.md) for Windows, Linux, and macOS.
 The packages include the engine. You do not need to install Godot.
 
