@@ -21,10 +21,39 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Check for changes since the nightly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      # A scheduled run builds only when main has moved past the commit of the nightly tag.
+      # A failed nightly leaves the tag on the old commit, so the next scheduled run tries again.
+      - name: Compare main with the nightly tag
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          build=true
+          if [ "$EVENT" = schedule ]; then
+            nightly="$(gh api "repos/$REPOSITORY/commits/nightly" --jq .sha 2>/dev/null || true)"
+            if [ "$nightly" = "$COMMIT" ]; then
+              echo "The nightly is already at $COMMIT. Skip this build."
+              build=false
+            fi
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
   test:
     name: Test
+    needs: changes
     # GitHub gives fork pull requests no secrets, so they only build packages.
     if: >-
+      needs.changes.outputs.build == 'true' &&
       github.repository == 'OpenSC2K/OpenSC2K' &&
       (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
     uses: ./.github/workflows/test.yml
@@ -32,6 +61,8 @@ jobs:
 
   build:
     name: Package
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
     uses: ./.github/workflows/package.yml
     with:
       # only the builds that replace the nightly release are signed and notarized
