@@ -149,12 +149,21 @@ await input.drag([400, 300], [520, 360]);
 input.key('Ctrl+S'); input.text('hello'); input.scroll(3, 640, 400);
 view.centerOn(64, 64); view.zoomIn(); view.rotate(); view.mode = 'pollution';
 await ui.screenshot('/full/path/screen.png'); // needs a game with a window
-await city.exportPng('/full/path/city.png'); // the whole city; also works in a headless game
+await city.exportPng('/full/path/part.png', { area: { x: 40, y: 40, width: 12, height: 12 }, size: 'large' });
+await city.exportPng('/full/path/city.png'); // the whole city: a large image
 ```
 
-`GET /screenshot` and the MCP `screenshot` tool return the image of the window. A
-headless game draws no image: use `city.textMap` and `city.exportPng` there. A position
-of `input` and each `rect` are in pixels of the full-size image.
+- **An image of some tiles:** `GET /city-image?x=40&y=40&width=12&height=12&size=large`
+  and the MCP `city_image` tool return a PNG of only those tiles. `city.exportPng` with
+  `area` writes the same image to a file. These work in a headless game. The game draws
+  only the area, thus a small area is fast on a map of each size. Prefer this to an
+  image of the whole city, which can be too large to read.
+- **The size of the tiles:** `size` is `small` (a tile is 8 pixels wide, the default),
+  `medium` (16) or `large` (32). An area of 12 by 12 tiles at `large` is about 400 by
+  250 pixels. `view: 'underground'` draws the pipes and the subways.
+- **The window:** `GET /screenshot` and the MCP `screenshot` tool return the image of
+  the window. A headless game has no window image. A position of `input` and each
+  `rect` are in pixels of the full-size window image.
 
 ## Other functions
 

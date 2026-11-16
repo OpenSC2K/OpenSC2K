@@ -10,6 +10,8 @@ const RASTER_BAND_HEIGHT := 128
 const MAXIMUM_IMAGE_PIXELS := 268435456
 # the largest band of the native full-color raster
 const MAXIMUM_ARTWORK_BAND_PIXELS := 16777216
+# the longest edge of a structure, in tiles
+const MAXIMUM_STRUCTURE_EDGE := 4
 
 static var _patch_context: CityGpuBuildContext
 static var _patch_revision := 0
@@ -18,7 +20,9 @@ static var _patch_revision := 0
 # the whole city in the native painter. an index palette gives an LA8 image with
 # a transparent background, or an L8 image. moving objects and special overlays
 # are painted with their tiles. `progress` receives the painted fraction.
-# a nonzero `maximum_size` reduces the output by a whole factor until it fits
+# a nonzero `maximum_size` reduces the output by a whole factor until it fits.
+# `tiles` with an area paints only the pixels of those tiles: the result has the
+# place of its image in the whole picture as `origin`
 static func create_image(
 	city: CityState,
 	palette: Sc2Palette,
@@ -31,7 +35,8 @@ static func create_image(
 	include_special_overlays := true,
 	progress := Callable(),
 	maximum_size := Vector2i.ZERO,
-	artwork_factor := 0
+	artwork_factor := 0,
+	tiles := Rect2i()
 ) -> AssetImageResult:
 	var map_edge: int = city.map_size if city != null else 128
 
@@ -57,21 +62,63 @@ static func create_image(
 	if not failure.is_empty():
 		return AssetImageResult.failure(failure)
 
-	if validate_required_assets:
+	var size := IsometricGeometry.output_size_for_view(view_size, map_edge)
+	var bounds := Rect2i(Vector2i.ZERO, size)
+
+	if tiles.has_area():
+		bounds = tile_area_bounds(context, tiles, view_size, map_edge)
+
+		if not bounds.has_area():
+			return AssetImageResult.failure("the tile area has no image")
+	elif validate_required_assets:
+		# the check paints each tile of the city. the painter of a tile area
+		# fails on the first sprite that it lacks
 		var asset_errors := context.missing_sprite_errors()
 
 		if not asset_errors.is_empty():
 			return AssetImageResult.failure(asset_errors[0])
 
-	var size := IsometricGeometry.output_size_for_view(view_size, map_edge)
+	var background := Color.TRANSPARENT if transparent_background else Color("18242c")
 
 	if artwork_factor > 0:
-		return paint_whole_city_artwork(context, size, Color.TRANSPARENT if transparent_background else Color("18242c"),
-			artwork_factor, progress)
+		return paint_artwork(context, bounds, background, artwork_factor, progress)
 
-	return paint_whole_city(context, size,
-		Color.TRANSPARENT if transparent_background else Color("18242c"), palette.is_index_encoding and transparent_background,
-		palette.is_index_encoding and not transparent_background, progress, reduction_to_fit(size, maximum_size))
+	return paint_region(context, bounds, background, palette.is_index_encoding and transparent_background,
+		palette.is_index_encoding and not transparent_background, progress, reduction_to_fit(bounds.size, maximum_size))
+
+
+# the pixels that the tiles of `tiles` paint, in the picture of the whole
+# city: the sprites of each tile, and the whole sprite of each structure that
+# has a part in the area. an area outside the map gives an empty rectangle
+static func tile_area_bounds(context: CityGpuBuildContext, tiles: Rect2i, view_size: int, map_edge: int) -> Rect2i:
+	var configuration := IsometricGeometry.view_configuration(view_size)
+	var map := Rect2i(0, 0, map_edge, map_edge)
+	var area := tiles.intersection(map)
+
+	if configuration == null or not area.has_area():
+		return Rect2i()
+
+	var result := Rect2i()
+	# the painter gives the sprite of a structure to its left tile on the
+	# screen: the lowest x and the highest y. that tile can be this far outside
+	# the area
+	var reach := MAXIMUM_STRUCTURE_EDGE - 1
+	var searched := Rect2i(area.position - Vector2i(reach, 0), area.size + Vector2i(reach, reach)).intersection(map)
+
+	for x in range(searched.position.x, searched.end.x):
+		for y in range(searched.position.y, searched.end.y):
+			var inside := area.has_point(Vector2i(x, y))
+			var records: PackedInt64Array = context.tile_draws([Vector2i(x, y)] as Array[Vector2i]).get("records", PackedInt64Array())
+
+			for at in range(0, records.size(), CityGpuBuildContext.RECORD_SIZE):
+				var sprite := Rect2i(records[at], records[at + 1], records[at + 2], records[at + 3])
+				# a sprite wider than one tile stands on that many tiles to each side
+				var edge := ceili(float(sprite.size.x) / configuration.tile_width)
+
+				if inside or (edge > 1 and Rect2i(x, y - edge + 1, edge, edge).intersects(area)):
+					result = result.merge(sprite) if result.has_area() else sprite
+
+	return result.intersection(Rect2i(Vector2i.ZERO, IsometricGeometry.output_size_for_view(view_size, map_edge)))
 
 
 # the smallest whole factor that makes `size` fit in `maximum_size`.
@@ -135,6 +182,15 @@ static func missing_sprite_errors(city: CityState, sprites: Sc2SpriteArchive, vi
 # so the full-size image is never held. do not reduce index images
 static func paint_whole_city(context: CityGpuBuildContext, size: Vector2i, background: Color, index_alpha: bool,
 		index_opaque: bool, progress := Callable(), reduction := 1) -> AssetImageResult:
+	return paint_region(context, Rect2i(Vector2i.ZERO, size), background, index_alpha, index_opaque, progress, reduction)
+
+
+# paint the pixels of `bounds` only, as `paint_whole_city` paints the whole
+# output. `bounds` must be inside the output. the result has the place of
+# `bounds` as its `origin`
+static func paint_region(context: CityGpuBuildContext, bounds: Rect2i, background: Color, index_alpha: bool,
+		index_opaque: bool, progress := Callable(), reduction := 1) -> AssetImageResult:
+	var size := bounds.size
 	var output_size := Vector2i(ceili(float(size.x) / reduction), ceili(float(size.y) / reduction))
 
 	if output_size.x <= 0 or output_size.y <= 0:
@@ -147,7 +203,7 @@ static func paint_whole_city(context: CityGpuBuildContext, size: Vector2i, backg
 	var band_height := reduction * maxi(1, RASTER_BAND_HEIGHT / reduction)
 
 	for top in range(0, size.y, band_height):
-		var band := Rect2i(0, top, size.x, mini(band_height, size.y - top))
+		var band := Rect2i(bounds.position.x, bounds.position.y + top, size.x, mini(band_height, size.y - top))
 		var painted := context.raster(band, background)
 
 		if painted.has("error"):
@@ -161,7 +217,7 @@ static func paint_whole_city(context: CityGpuBuildContext, size: Vector2i, backg
 		output.blit_rect(image, Rect2i(Vector2i.ZERO, image.get_size()), Vector2i(0, top / reduction))
 
 		if progress.is_valid():
-			progress.call(float(band.end.y) / size.y)
+			progress.call(float(top + band.size.y) / size.y)
 
 	if index_alpha:
 		output.convert(Image.FORMAT_LA8)
@@ -172,6 +228,7 @@ static func paint_whole_city(context: CityGpuBuildContext, size: Vector2i, backg
 	result.ok = true
 	result.image = output
 	result.error = ""
+	result.origin = bounds.position
 
 	return result
 
@@ -217,6 +274,7 @@ static func paint_artwork(context: CityGpuBuildContext, bounds: Rect2i, backgrou
 	result.ok = true
 	result.image = output
 	result.error = ""
+	result.origin = bounds.position
 
 	return result
 

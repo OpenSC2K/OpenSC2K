@@ -22,7 +22,8 @@ static func create_image(
 	show_subways := true, show_water_mains := true,
 	transparent_background := false,
 	progress := Callable(),
-	show_tunnels := true
+	show_tunnels := true,
+	tiles := Rect2i()
 ) -> AssetImageResult:
 	var map_edge: int = city.map_size if city != null else 128
 
@@ -45,13 +46,21 @@ static func create_image(
 	if not failure.is_empty():
 		return AssetImageResult.failure(failure)
 
-	if validate_required_assets:
+	var bounds := Rect2i(Vector2i.ZERO, Geometry.output_size_for_view(view_size, map_edge))
+
+	# `tiles` with an area paints only the pixels of those tiles
+	if tiles.has_area():
+		bounds = IsometricImageRender.tile_area_bounds(context, tiles, view_size, map_edge)
+
+		if not bounds.has_area():
+			return AssetImageResult.failure("the tile area has no image")
+	elif validate_required_assets:
 		var missing := context.builder.missing_sprites()
 
 		if not missing.is_empty():
 			return AssetImageResult.failure("required underground sprite %d is missing" % missing[0])
 
-	return IsometricImageRender.paint_whole_city(context, Geometry.output_size_for_view(view_size, map_edge),
+	return IsometricImageRender.paint_region(context, bounds,
 		Color.TRANSPARENT if transparent_background else Color8(WHITE_PALETTE_INDEX, WHITE_PALETTE_INDEX, WHITE_PALETTE_INDEX, 255),
 		palette.is_index_encoding and transparent_background, palette.is_index_encoding and not transparent_background, progress)
 

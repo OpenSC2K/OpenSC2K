@@ -371,12 +371,13 @@
       return host('city.census', where === undefined ? null : area(where));
     },
 
-    // writes an image of the whole city to a PNG file: exportPng('/tmp/city.png', { size: 'small' })
+    // writes an image of the city to a PNG file: exportPng('/tmp/city.png', { size: 'small' }).
+    // with an area, the image shows only those tiles: { area: { x: 40, y: 40, width: 12, height: 12 } }
     async exportPng(path, options = {}) {
-      const result = host('city.exportPng', String(path), options);
+      host('city.exportPng', String(path), options);
       await until(() => !host('city.exporting'), 600000);
 
-      return result;
+      return host('city.exported');
     },
   });
 

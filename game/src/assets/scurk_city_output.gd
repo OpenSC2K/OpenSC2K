@@ -96,7 +96,7 @@ static func render(
 			view_size,
 			true,
 			bool(options.show_pipes), true, bool(options.show_water_mains),
-			transparent, progress
+			transparent, progress, true, options.tiles
 		)
 	elif view == "city":
 		var show_signs := bool(
@@ -119,16 +119,18 @@ static func render(
 			bool(options.special_overlays),
 			progress,
 			Vector2i.ZERO,
-			factor
+			factor,
+			options.tiles
 		)
 
 		if result.ok and factor > 0:
-			_draw_scaled_overlay(result.image, city, display_city, render_palette, sprites, view_size, show_signs, factor)
+			_draw_scaled_overlay(result.image, city, display_city, render_palette, sprites, view_size, show_signs, factor,
+				result.origin)
 
 			return result
 
 		if result.ok and show_signs:
-			_draw_signs(result.image, display_city, render_palette, view_size)
+			_draw_signs(result.image, display_city, render_palette, view_size, result.origin)
 	else:
 		return AssetImageResult.failure("print view must be city or underground")
 
@@ -141,7 +143,7 @@ static func render(
 		return AssetImageResult.failure("city output is empty")
 
 	if view == "city":
-		_draw_artwork_stamps(image, city, render_palette, sprites, view_size)
+		_draw_artwork_stamps(image, city, render_palette, sprites, view_size, result.origin)
 
 	if not bool(options.color):
 		image = _monochrome_copy(image)
@@ -150,6 +152,7 @@ static func render(
 	outcome.ok = true
 	outcome.error = ""
 	outcome.image = image
+	outcome.origin = result.origin
 
 	return outcome
 
@@ -313,11 +316,13 @@ static func _monochrome_copy(source: Image) -> Image:
 	)
 
 
+# `origin` is the place of `image` in the picture of the whole city
 static func _draw_signs(
 	image: Image,
 	city: CityState,
 	render_palette: Sc2Palette,
-	view_size: int
+	view_size: int,
+	origin := Vector2i.ZERO
 ) -> void:
 	var map_edge: int = city.map_size if city != null else 128
 
@@ -333,48 +338,55 @@ static func _draw_signs(
 	var glyph_scale := 2
 	var sign_texts := city.sign_texts()
 
-	for diagonal in map_edge * 2 - 1:
-		for y in diagonal + 1:
-			var x := diagonal - y
+	# the tiles of the signs in painter order: far tiles first. a loop on each
+	# tile of a large map takes seconds
+	var places: Array[Vector2i] = []
 
-			if x >= map_edge or y >= map_edge:
-				continue
+	for index: int in sign_texts:
+		if index >= 0 and index < map_edge * map_edge:
+			places.append(Vector2i(index / map_edge, index % map_edge))
 
-			var text := str(sign_texts.get(x * map_edge + y, "")).strip_edges().to_upper()
+	places.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return a.x + a.y < b.x + b.y or (a.x + a.y == b.x + b.y and a.y < b.y))
 
-			if text.is_empty():
-				continue
+	for place in places:
+		var x := place.x
+		var y := place.y
+		var text := str(sign_texts[x * map_edge + y]).strip_edges().to_upper()
 
-			text = text.left(30)
-			var polygon := Renderer.tile_polygon(city, x, y)
+		if text.is_empty():
+			continue
 
-			if polygon.size() != 4:
-				continue
+		text = text.left(30)
+		var polygon := Renderer.tile_polygon(city, x, y)
 
-			var anchor := polygon[0] / divisor + Vector2(0.0, -8.0 / divisor)
-			var text_width := text.length() * 6 * glyph_scale - glyph_scale
-			var panel_bottom := anchor.y - float(15 * view_size + 20)
-			var panel := Rect2i(
-				floori(anchor.x - float(text_width) * 0.5 - 8.0),
-				floori(panel_bottom - float(7 * glyph_scale + 6)),
-				text_width + 16,
-				7 * glyph_scale + 6
-			)
-			_draw_sign_panel(image, panel, render_palette)
-			var post := Rect2i(
-				floori(anchor.x - 2.0),
-				panel.end.y,
-				4,
-				maxi(1, floori(anchor.y) - panel.end.y)
-			)
-			_fill_clipped(image, post, render_palette.color(SIGN_POST_INDEX))
-			_draw_text_5x7(
-				image,
-				text,
-				panel.position + Vector2i(8, 3),
-				glyph_scale,
-				render_palette.color(SIGN_TEXT_INDEX)
-			)
+		if polygon.size() != 4:
+			continue
+
+		var anchor := polygon[0] / divisor + Vector2(0.0, -8.0 / divisor) - Vector2(origin)
+		var text_width := text.length() * 6 * glyph_scale - glyph_scale
+		var panel_bottom := anchor.y - float(15 * view_size + 20)
+		var panel := Rect2i(
+			floori(anchor.x - float(text_width) * 0.5 - 8.0),
+			floori(panel_bottom - float(7 * glyph_scale + 6)),
+			text_width + 16,
+			7 * glyph_scale + 6
+		)
+		_draw_sign_panel(image, panel, render_palette)
+		var post := Rect2i(
+			floori(anchor.x - 2.0),
+			panel.end.y,
+			4,
+			maxi(1, floori(anchor.y) - panel.end.y)
+		)
+		_fill_clipped(image, post, render_palette.color(SIGN_POST_INDEX))
+		_draw_text_5x7(
+			image,
+			text,
+			panel.position + Vector2i(8, 3),
+			glyph_scale,
+			render_palette.color(SIGN_TEXT_INDEX)
+		)
 
 
 static func _draw_sign_panel(
@@ -440,15 +452,15 @@ static func _fill_clipped(image: Image, rectangle: Rect2i, color: Color) -> void
 # Signs and SCURK artwork stamps of an HD image, drawn at the view scale and
 # enlarged by `factor`.
 static func _draw_scaled_overlay(image: Image, city: CityState, display_city: CityState, palette: Sc2Palette,
-		sprites: Sc2SpriteArchive, view_size: int, show_signs: bool, factor: int) -> void:
+		sprites: Sc2SpriteArchive, view_size: int, show_signs: bool, factor: int, origin := Vector2i.ZERO) -> void:
 	var size := image.get_size() / factor
 	var overlay := Image.create(size.x, size.y, false, Image.FORMAT_RGBA8)
 	overlay.fill(Color.TRANSPARENT)
 
 	if show_signs:
-		_draw_signs(overlay, display_city, palette, view_size)
+		_draw_signs(overlay, display_city, palette, view_size, origin)
 
-	_draw_artwork_stamps(overlay, city, palette, sprites, view_size)
+	_draw_artwork_stamps(overlay, city, palette, sprites, view_size, origin)
 
 	if overlay.is_invisible():
 		return
@@ -457,7 +469,8 @@ static func _draw_scaled_overlay(image: Image, city: CityState, display_city: Ci
 	image.blend_rect(overlay, Rect2i(Vector2i.ZERO, overlay.get_size()), Vector2i.ZERO)
 
 
-static func _draw_artwork_stamps(output: Image, city: CityState, palette: Sc2Palette, sprites: Sc2SpriteArchive, view_size: int) -> void:
+static func _draw_artwork_stamps(output: Image, city: CityState, palette: Sc2Palette, sprites: Sc2SpriteArchive, view_size: int,
+		place := Vector2i.ZERO) -> void:
 	var configuration := Renderer.view_configuration(view_size)
 
 	for stamp in city.scurk_artwork_stamps:
@@ -477,7 +490,7 @@ static func _draw_artwork_stamps(output: Image, city: CityState, palette: Sc2Pal
 			image.flip_x()
 
 		var anchor := Renderer.tile_polygon(city, stamp.point.x, stamp.point.y)[2] / float(configuration.divisor)
-		var origin := Vector2i(anchor) - Vector2i(image.get_width() / 2, image.get_height() - 1)
+		var origin := Vector2i(anchor) - Vector2i(image.get_width() / 2, image.get_height() - 1) - place
 
 		for y in image.get_height():
 			for x in image.get_width():
@@ -509,6 +522,8 @@ class Options extends RefCounted:
 	# 0 for the indexed sprites, or 1, 2 or 4 output pixels for each view pixel
 	# with the HD art of the sprites
 	var artwork_factor := 0
+	# with an area: the image shows only these tiles, and only they are drawn
+	var tiles := Rect2i()
 
 	func _init() -> void:
 		surface_visibility.assign(ViewFilter.DEFAULT_VISIBILITY)
@@ -528,6 +543,7 @@ class Options extends RefCounted:
 		result.progress = progress
 		result.surface_visibility = surface_visibility.duplicate()
 		result.artwork_factor = artwork_factor
+		result.tiles = tiles
 
 		return result
 

@@ -16,6 +16,7 @@ const RESTRICTED: PackedStringArray = ["city.exportPng"]
 # city.find returns this many tiles at most
 const MAX_FOUND := 2000
 # the image sizes of city.exportPng: name -> the view size of the renderer
+const EXPORT_VIEWS: PackedStringArray = ["city", "underground"]
 const EXPORT_SIZES := {
 	"small": CityIsometricRenderer.VIEW_SMALL, "medium": CityIsometricRenderer.VIEW_MEDIUM, "large": CityIsometricRenderer.VIEW_LARGE,
 }
@@ -47,6 +48,7 @@ func handlers() -> Dictionary[String, Callable]:
 		"city.census": _city_census,
 		"city.exportPng": _city_export_png,
 		"city.exporting": func(_arguments: Array) -> Variant: return app.city_png_export.is_running(),
+		"city.exported": _city_exported,
 	}
 
 
@@ -535,8 +537,9 @@ func _city_census(arguments: Array) -> Variant:
 		"unpowered": unpowered}
 
 
-# exportPng(path, { size, view, signs, movingThings, transparent }): starts
-# the export of the whole city to a PNG file, as File > Export City as PNG does
+# exportPng(path, { area, size, view, signs, movingThings, transparent }):
+# starts the export of the city to a PNG file, as File > Export City as PNG
+# does. With an area, the image shows only those tiles and only they are drawn
 func _city_export_png(arguments: Array) -> Variant:
 	if not need_city():
 		return null
@@ -552,17 +555,31 @@ func _city_export_png(arguments: Array) -> Variant:
 	if not EXPORT_SIZES.has(size):
 		return fail("The size must be one of: %s." % ", ".join(EXPORT_SIZES.keys()))
 
-	if CityViewMode.from_key(view) == CityViewMode.Mode.NONE:
-		return fail("The view must be one of: %s." % ", ".join(CityViewMode.KEYS))
+	if not EXPORT_VIEWS.has(view):
+		return fail("The view must be one of: %s." % ", ".join(EXPORT_VIEWS))
 
 	if app.city_png_export.is_running():
 		return fail("A PNG export is already running.")
 
-	if not CityPngExportJob.fits(app.document_state.city.map_size, EXPORT_SIZES[size]):
-		return fail("The image of this city is too large at the size %s." % size)
+	var map_size := app.document_state.city.map_size
+	var tiles := Rect2i()
+
+	if choices.get("area") != null:
+		tiles = _area([choices.area], 0)
+
+		if not tiles.has_area():
+			return null
+
+	# the area of the whole map is the image of the whole city
+	if tiles == Rect2i(0, 0, map_size, map_size):
+		tiles = Rect2i()
+
+	if not tiles.has_area() and not CityPngExportJob.fits(map_size, EXPORT_SIZES[size]):
+		return fail("The image of this city is too large at the size %s. Export an area of it: { area: { x, y, width, height } }." % size)
 
 	var options := CityPngExportJob.Options.new()
 	options.path = path
+	options.tiles = tiles
 	options.view_size = EXPORT_SIZES[size]
 	options.view = view
 	options.signs = bool(choices.get("signs", true))
@@ -574,6 +591,18 @@ func _city_export_png(arguments: Array) -> Variant:
 	if not app.city_png_export.is_running():
 		return fail("The PNG export cannot start: %s" % app.status_label.text)
 
-	var pixels := CityPngExportJob.output_size(app.document_state.city.map_size, EXPORT_SIZES[size])
+	return true
 
-	return {"path": path, "width": pixels.x, "height": pixels.y}
+
+# the image of the newest export that ended: { path, width, height, origin }.
+# `origin` is the place of the image in the picture of the whole city
+func _city_exported(_arguments: Array) -> Variant:
+	var result := app.city_png_export.last_result
+
+	if result == null:
+		return fail("No PNG export ended.")
+
+	if not result.ok:
+		return fail("The PNG export failed: %s" % result.error)
+
+	return {"path": result.path, "width": result.size.x, "height": result.size.y, "origin": {"x": result.origin.x, "y": result.origin.y}}

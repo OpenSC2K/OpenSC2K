@@ -153,9 +153,12 @@ interface Census {
 }
 
 interface PngExportOptions {
+  /** The image shows only these tiles, and the game draws only them. Without it: the whole city. */
+  area?: TileArea;
   /** The size of the tiles. The default is `'small'`. */
   size?: 'small' | 'medium' | 'large';
-  view?: ViewMode;
+  /** The default is `'city'`. */
+  view?: 'city' | 'underground';
   signs?: boolean;
   movingThings?: boolean;
   transparent?: boolean;
@@ -165,6 +168,8 @@ interface ImageFile {
   path: string;
   width: number;
   height: number;
+  /** City images only: the place of the image, in pixels, in the picture of the whole city. */
+  origin?: { x: number; y: number };
 }
 
 interface DataMap {
@@ -618,7 +623,7 @@ interface City {
   find(what: string | number, area?: TileArea): FoundTile[];
   /** The number of tiles of each structure and zone in an area, or in the whole map. */
   census(area?: TileArea): Census;
-  /** Writes an image of the whole city to a PNG file. Resolves when the export ends. Console scripts only. */
+  /** Writes an image of the city, or of the tiles of `options.area`, to a PNG file. Resolves when the export ends. Console scripts only. */
   exportPng(path: string, options?: PngExportOptions): Promise<ImageFile>;
 }
 

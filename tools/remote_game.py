@@ -9,6 +9,8 @@ A program such as an LLM agent plays the game with these commands:
   tools/remote_game.py eval - < script.js    run a script from standard input
   tools/remote_game.py state                 print game.state()
   tools/remote_game.py screenshot out.png    save an image of the game window
+  tools/remote_game.py city-image out.png --area 40 40 12 12
+                                             save an image of some tiles; a headless game can do this
   tools/remote_game.py guide                 print how to play through the API
   tools/remote_game.py types                 print the TypeScript declarations of the API
   tools/remote_game.py stop                  close the game
@@ -171,8 +173,13 @@ def evaluate(args):
 
 
 def screenshot(args):
+    return save_image(args, f'/screenshot?scale={args.scale}')
+
+
+def save_image(args, route):
+    """Save the image of a route to args.path. Return the exit status."""
     try:
-        status, _, content = request(args.port, f'/screenshot?scale={args.scale}')
+        status, _, content = request(args.port, route)
     except OSError as error:
         print(f'No game answers on port {args.port}: {error}', file=sys.stderr)
         return 2
@@ -183,6 +190,13 @@ def screenshot(args):
     path.write_bytes(content)
     print(path)
     return 0
+
+
+def city_image(args):
+    query = [f'size={args.size}', f'view={args.view}']
+    if args.area:
+        query += [f'{name}={value}' for name, value in zip(('x', 'y', 'width', 'height'), args.area)]
+    return save_image(args, '/city-image?' + '&'.join(query))
 
 
 def main():
@@ -200,6 +214,12 @@ def main():
     shooter = commands.add_parser('screenshot', help='Save an image of the game window')
     shooter.add_argument('path')
     shooter.add_argument('--scale', type=float, default=1.0)
+    drawer = commands.add_parser('city-image', help='Save an image of the city, or of some of its tiles')
+    drawer.add_argument('path')
+    drawer.add_argument('--area', type=int, nargs=4, metavar=('X', 'Y', 'WIDTH', 'HEIGHT'),
+                        help='Draw only these tiles. The default is the whole city')
+    drawer.add_argument('--size', choices=('small', 'medium', 'large'), default='small', help='The size of the tiles')
+    drawer.add_argument('--view', default='city', help='city or underground')
     commands.add_parser('guide', help='Print how to play through the API')
     commands.add_parser('types', help='Print the TypeScript declarations of the API')
     commands.add_parser('stop', help='Close the game')
@@ -212,6 +232,8 @@ def main():
         return evaluate(args)
     if args.command == 'screenshot':
         return screenshot(args)
+    if args.command == 'city-image':
+        return city_image(args)
     return show(args.port, '/' + args.command)
 
 

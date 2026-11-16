@@ -3,8 +3,8 @@ extends RefCounted
 ## The remote API: a program outside the game, such as an LLM agent, plays
 ## the game through a local HTTP port. A request runs JavaScript in the
 ## console script runtime, with the game API of scripts, and receives the
-## value as JSON. Other routes return the game state, an image of the window
-## and the API reference. /mcp speaks the Model Context Protocol. The server
+## value as JSON. Other routes return the game state, an image of the window,
+## an image of the city or of some of its tiles, and the API reference. /mcp speaks the Model Context Protocol. The server
 ## is off until the command line has --api or the console command `api`
 ## starts it. See docs/remote-api.md.
 
@@ -260,6 +260,43 @@ func _send_capture(scale: float, done: Callable) -> void:
 	done.call(image.save_png_to_buffer(), "")
 
 
+## Calls `done(png: PackedByteArray, error: String)` with an image of the
+## city, or of the tiles of `options.area` only. `options` are those of
+## city.exportPng. A headless game can do this.
+func capture_city(options: Dictionary, done: Callable) -> void:
+	var path := OS.get_temp_dir().path_join("opensc2k-city-%d-%d.png" % [OS.get_process_id(), _next_id])
+
+	run_script("await city.exportPng(%s, %s)" % [JSON.stringify(path), JSON.stringify(options)], MAX_TIMEOUT_MSEC,
+		func(result: Dictionary) -> void:
+			var png := FileAccess.get_file_as_bytes(path) if bool(result.ok) else PackedByteArray()
+			DirAccess.remove_absolute(path)
+			done.call(png, "" if bool(result.ok) else str(result.error)))
+
+
+## The options of city.exportPng from the values of a query or of a tool
+## call: x, y, width and height make the area.
+static func city_image_options(values: Dictionary) -> Dictionary:
+	var options := {}
+	var area := {}
+
+	for key: String in ["x", "y", "width", "height"]:
+		if str(values.get(key, "")).is_valid_float():
+			area[key] = int(float(str(values[key])))
+
+	if not area.is_empty():
+		options["area"] = area
+
+	for key: String in ["size", "view"]:
+		if values.has(key):
+			options[key] = str(values[key])
+
+	for key: String in ["signs", "movingThings", "transparent"]:
+		if values.has(key):
+			options[key] = str(values[key]).to_lower() in ["true", "1"]
+
+	return options
+
+
 func guide_text() -> String:
 	return FileAccess.get_file_as_string(GUIDE_PATH)
 
@@ -279,6 +316,12 @@ func _handle(request: RemoteHttpRequest) -> void:
 				request.respond_json_text(200, result_json(result)))
 		"/screenshot":
 			_handle_screenshot(request)
+		"/city-image":
+			capture_city(city_image_options(request.query), func(png: PackedByteArray, error: String) -> void:
+				if error.is_empty():
+					request.respond(200, "image/png", png)
+				else:
+					request.respond_error(400, error))
 		"/guide":
 			request.respond_text(200, guide_text(), "text/markdown; charset=utf-8")
 		"/types":
@@ -298,6 +341,8 @@ func _respond_index(request: RemoteHttpRequest) -> void:
 				+ "Answers { ok, value, error, console }.",
 			"GET /state": "The value of game.state(): the screen, the city, the open windows and what waits for an answer.",
 			"GET /screenshot": "A PNG image of the game window. ?scale=0.5 makes it smaller.",
+			"GET /city-image": "A PNG image of the city, also from a headless game. ?x=40&y=40&width=12&height=12 gives "
+				+ "only those tiles. ?size=small, medium or large is the size of the tiles.",
 			"GET /guide": "How to play the game through this API.",
 			"GET /types": "The TypeScript declarations of the game API.",
 			"POST /mcp": "The Model Context Protocol, for MCP clients.",

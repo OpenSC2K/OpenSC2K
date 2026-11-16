@@ -4,7 +4,8 @@ extends RefCounted
 ## MCP client such as an LLM agent uses the game as a tool server. This is
 ## the Streamable HTTP transport without a server stream: each POST holds
 ## one JSON-RPC message and receives one JSON answer. The tools run scripts,
-## read the game state, capture the window and return the API reference.
+## read the game state, capture the window, draw the city and return the API
+## reference.
 
 const PROTOCOL_VERSIONS: PackedStringArray = ["2025-06-18", "2025-03-26", "2024-11-05"]
 const PARSE_ERROR := -32700
@@ -40,6 +41,23 @@ const TOOLS := [
 		"inputSchema": {
 			"type": "object",
 			"properties": {"scale": {"type": "number", "description": "From 0.05 to 1. A smaller image costs less. The default is 1."}},
+		},
+	},
+	{
+		"name": "city_image",
+		"description": ("Return a PNG image of the city, drawn as the game draws it. A headless game can do this. "
+			+ "Give x, y, width and height in tiles to get only that part: a small area is a small image."),
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"x": {"type": "integer", "description": "The first tile column of the area."},
+				"y": {"type": "integer", "description": "The first tile row of the area."},
+				"width": {"type": "integer", "description": "The number of tile columns."},
+				"height": {"type": "integer", "description": "The number of tile rows."},
+				"size": {"type": "string", "enum": ["small", "medium", "large"],
+					"description": "The size of the tiles. The default is small: a tile is 8 pixels wide. Large is 32."},
+				"view": {"type": "string", "description": "city (the default) or underground."},
+			},
 		},
 	},
 	{
@@ -126,6 +144,9 @@ static func _call_tool(request: RemoteHttpRequest, id: Variant, parameters: Dict
 		"screenshot":
 			var scale: Variant = arguments.get("scale", 1.0)
 			api.capture_window(float(scale) if typeof(scale) in [TYPE_INT, TYPE_FLOAT] else 1.0,
+				func(png: PackedByteArray, error: String) -> void: request.respond_json(200, _result(id, _image_content(png, error))))
+		"city_image":
+			api.capture_city(ApplicationRemoteApi.city_image_options(arguments),
 				func(png: PackedByteArray, error: String) -> void: request.respond_json(200, _result(id, _image_content(png, error))))
 		"guide":
 			var text := api.guide_text()

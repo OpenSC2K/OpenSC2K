@@ -21,6 +21,8 @@ var dialog: CityPngExportDialog
 var progress_overlay: ProgressOverlay
 var job: CityPngExportJob
 var last_folder := ""
+# the result of the newest export that ended, or null
+var last_result: CityPngExportJob.Result
 var progress_delay_msec := PROGRESS_DELAY_MSEC
 var _started_msec := 0
 
@@ -94,8 +96,10 @@ func start_export(options: CityPngExportJob.Options) -> void:
 	job.show_underground_pipes = view_state.show_underground_pipes
 	job.show_underground_water_mains = view_state.show_underground_water_mains
 	job.artwork_factor = int(options.artwork_factor)
+	job.tiles = options.tiles
 	job.path = String(options.path)
 	last_folder = job.path.get_base_dir()
+	last_result = null
 	var error := job.start()
 
 	if error != OK:
@@ -126,6 +130,7 @@ func poll_export() -> void:
 
 	var result: CityPngExportJob.Result = job.thread.wait_to_finish()
 	job = null
+	last_result = result
 	progress_overlay.hide()
 
 	if not result.ok:

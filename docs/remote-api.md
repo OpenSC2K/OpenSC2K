@@ -38,6 +38,7 @@ tools/remote_game.py eval 'game.newCity({ name: "Springfield", seed: 7 })'
 tools/remote_game.py eval - < script.js    # a script from standard input
 tools/remote_game.py state
 tools/remote_game.py screenshot screen.png --scale 0.5
+tools/remote_game.py city-image part.png --area 40 40 12 12 --size large
 tools/remote_game.py guide
 tools/remote_game.py stop
 ```
@@ -58,6 +59,7 @@ The server listens on `127.0.0.1` only.
 | `POST /eval` | Runs the JavaScript of the body. The body is the source, or JSON `{ "source": "...", "timeout": 30000 }` with the content type `application/json`. `?timeout=` gives the time in milliseconds for plain source. |
 | `GET /state` | The value of `game.state()`. |
 | `GET /screenshot` | A PNG image of the game window. `?scale=0.5` makes it smaller. A headless game answers 503. |
+| `GET /city-image` | A PNG image of the city, also from a headless game. `?x=40&y=40&width=12&height=12` gives only those tiles. `size` is `small`, `medium` or `large`; `view` is `city` or `underground`. |
 | `GET /guide` | The guide for an agent. |
 | `GET /types` | The TypeScript declarations of the API. |
 | `POST /mcp` | The Model Context Protocol. |
@@ -103,6 +105,7 @@ tools:
 | `eval` | Runs JavaScript: `{ source, timeout_ms }`. Returns the value as JSON text, then the console output. |
 | `state` | Returns `game.state()`. |
 | `screenshot` | Returns a PNG image of the game window: `{ scale }`. |
+| `city_image` | Returns a PNG image of the city, or of some tiles: `{ x, y, width, height, size, view }`. |
 | `guide` | Returns the guide. `{ types: true }` adds the TypeScript declarations. |
 
 Start the game, then add the server to the client. For Claude Code:
@@ -126,7 +129,7 @@ The game must run before the client connects.
 | Budget and disasters | `budget.*`, `sim.startDisaster` |
 | Answer windows and use menus | `ui.accept`, `ui.close`, `ui.press`, `ui.set`, `ui.choose`, `ui.menu`, `ui.chooseFile`, `game.action` |
 | All other actions | `input.click`, `input.drag`, `input.key`, `input.text`, `input.scroll`, with `view.screenOf` |
-| Images | `ui.screenshot`, `GET /screenshot`, `city.exportPng` |
+| Images | `GET /city-image` and `city.exportPng` with an area of tiles, `ui.screenshot`, `GET /screenshot` |
 
 [Scripting](scripting.md) describes each function. The `ui` functions use each
 control as the player does: they change the control and send its signals. Thus the
@@ -149,7 +152,7 @@ ui.accept(); // approves the yearly budget
 | --- | --- | --- |
 | A person can watch | No | Yes |
 | `GET /screenshot`, `ui.screenshot` | No image | Yes |
-| `city.exportPng`, `city.textMap` | Yes | Yes |
+| `GET /city-image`, `city.exportPng`, `city.textMap` | Yes | Yes |
 | `ui` and `input` functions | Yes | Yes |
 | GPU renderer | No | Yes |
 
@@ -157,6 +160,12 @@ A headless game gets a window size of 1280 by 800 for its layout when the server
 starts, thus each control has a place in whole pixels. `start --window` sets
 `view.follow = true`: the view moves to each tile that `tools.apply` changes. A
 headless run does not prove GPU pixel output.
+
+An image of an area of tiles is the same part of the image of the whole city. The
+game draws only the pixels of the area, thus the time and the size of the image do
+not depend on the size of the map. The image holds each tile of the area and the
+whole sprite of each structure that has a tile in the area. A map of 1024 tiles or
+more is too large for one image at some tile sizes; an area of it is not.
 
 The simulation runs in the same way in both. `sim.advance` runs days as fast as the
 computer can; `sim.speed` and `sim.runTo` run in real time, as for a player.

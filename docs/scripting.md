@@ -314,7 +314,7 @@ for (const key of game.storage.keys()) {
 | `city.region(x, y, width, height)` | The stored values of an area, one array for each map: `{ x, y, width, height, building, zone, terrain, underground, altitude, water, powered, watered }`. |
 | `city.find(what, area)` | The tiles of a structure, by a part of its name or by its stored id: `[{ x, y, building, name }]`. 2000 tiles at most. |
 | `city.census(area)` | The number of tiles of each structure and zone: `{ tiles, structures, zones, water, powered, unpowered }`. |
-| `city.exportPng(path, options)` *(console)* | Writes an image of the whole city to a PNG file, as File > Export City as PNG does. A promise of `{ path, width, height }`. Options: `size` (`'small'`, `'medium'`, `'large'`), `view`, `signs`, `movingThings`, `transparent`. |
+| `city.exportPng(path, options)` *(console)* | Writes an image of the city to a PNG file, as File > Export City as PNG does. A promise of `{ path, width, height, origin }`. Options: `area` (`{ x, y, width, height }` in tiles: the image shows only those tiles, and only they are drawn), `size` (`'small'`, `'medium'`, `'large'`), `view` (`'city'`, `'underground'`), `signs`, `movingThings`, `transparent`. `origin` is the place of the image in the picture of the whole city. |
 
 A point can be `(x, y)`, `({ x, y })` or `([x, y])`. Tile coordinates go from 0
 to `city.size - 1`.

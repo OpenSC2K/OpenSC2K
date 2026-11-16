@@ -74,7 +74,8 @@ func _request(method: HTTPClient.Method, path: String, body := "", headers := Pa
 		if header.to_lower().begins_with("content-type:"):
 			type = header.get_slice(":", 1).strip_edges()
 
-	return {"status": client.get_response_code(), "type": type, "text": bytes.get_string_from_utf8(), "size": bytes.size()}
+	return {"status": client.get_response_code(), "type": type, "size": bytes.size(),
+		"text": "" if type.begins_with("image/") else bytes.get_string_from_utf8()}
 
 
 # runs JavaScript through POST /eval: the answer { ok, value, error, console }
@@ -277,8 +278,24 @@ func _check_interface() -> void:
 		assert(str((await _eval("await ui.screenshot()")).error).contains("headless"))
 
 	var export_path := folder.path_join("city.png")
-	var exported: Dictionary = (await _eval("await city.exportPng(%s)" % JSON.stringify(export_path), 120000)).value
+	var exported: Dictionary = (await _eval("sim.pause(); await city.exportPng(%s)" % JSON.stringify(export_path), 120000)).value
 	assert(FileAccess.file_exists(export_path) and exported.width > 0.0, "exportPng writes an image of the city without a window")
+
+	# an area of the city is a small image: that part of the whole image
+	var part_path := folder.path_join("part.png")
+	var part: Dictionary = await _value("await city.exportPng(%s, { area: { x: site.x - 3, y: site.y - 3, width: 6, height: 6 } })"
+		% JSON.stringify(part_path))
+	var part_rect := Rect2i(int(part.origin.x), int(part.origin.y), int(part.width), int(part.height))
+	assert(part.width < exported.width / 4.0 and part.height < exported.height / 4.0, "The image of an area is small: " + str(part))
+	assert(Image.load_from_file(part_path).get_data() == Image.load_from_file(export_path).get_region(part_rect).get_data(),
+		"The image of an area is that part of the image of the city")
+	assert(str((await _eval("await city.exportPng(%s, { area: { x: 500, y: 500 } })" % JSON.stringify(part_path))).error).contains("outside"))
+	assert(str((await _eval("await city.exportPng(%s, { view: 'pollution' })" % JSON.stringify(part_path))).error).contains("underground"))
+
+	# the route returns the image itself, also from a headless game
+	var drawn := await _request(HTTPClient.METHOD_GET, "/city-image?x=40&y=40&width=6&height=6&size=medium&view=underground")
+	assert(drawn.status == 200 and drawn.type == "image/png" and int(drawn.size) > 100, str(drawn.status))
+	assert((await _request(HTTPClient.METHOD_GET, "/city-image?x=500&y=500")).status == 400)
 
 
 func _mcp(message: Dictionary) -> Dictionary:
@@ -298,7 +315,7 @@ func _check_mcp() -> void:
 	assert((await _mcp({"jsonrpc": "2.0", "method": "notifications/initialized"})).status == 202, "A notification has no answer")
 	var listed := await _mcp({"jsonrpc": "2.0", "id": "list", "method": "tools/list"})
 	var names: Array = listed.data.result.tools.map(func(tool: Dictionary) -> String: return tool.name)
-	assert(listed.data.id == "list" and names == ["eval", "state", "screenshot", "guide"], str(names))
+	assert(listed.data.id == "list" and names == ["eval", "state", "screenshot", "city_image", "guide"], str(names))
 	var called := await _mcp({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": {"name": "eval", "arguments": {"source": "console.log('noted'); city.name"}}})
 	assert(called.data.result.content[0].text == "\"Playtown\"\n\nConsole:\nnoted" and not bool(called.data.result.isError))
@@ -307,6 +324,12 @@ func _check_mcp() -> void:
 	assert(bool(failed.data.result.isError) and str(failed.data.result.content[0].text).begins_with("Error: ReferenceError"))
 	var state := await _mcp({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "state"}})
 	assert(JSON.parse_string(state.data.result.content[0].text).screen == "city")
+	var drawn := await _mcp({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+		"params": {"name": "city_image", "arguments": {"x": 40, "y": 40, "width": 6, "height": 6, "size": "large"}}})
+	var picture := Image.new()
+	assert(drawn.data.result.content[0].type == "image" and not bool(drawn.data.result.isError)
+		and picture.load_png_from_buffer(Marshalls.base64_to_raw(drawn.data.result.content[0].data)) == OK and picture.get_width() == 6 * 32,
+		"The city_image tool returns the image of an area")
 	var guide := await _mcp({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "guide", "arguments": {"types": true}}})
 	assert(str(guide.data.result.content[0].text).contains("interface GameInput"))
 	var unknown := await _mcp({"jsonrpc": "2.0", "id": 6, "method": "resources/list"})

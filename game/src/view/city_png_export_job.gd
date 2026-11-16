@@ -1,7 +1,8 @@
 class_name CityPngExportJob
 extends RefCounted
 
-# render a whole city view to a png file on a worker thread
+# render a city view to a png file on a worker thread: the whole city, or
+# only the tiles of `tiles`
 
 const Renderer = preload("res://src/view/city_isometric_renderer.gd")
 const ViewFilter = preload("res://src/view/city_view_filter.gd")
@@ -21,6 +22,8 @@ var show_underground_pipes := true
 var show_underground_water_mains := true
 # 0 for the indexed sprites, or 1, 2 or 4 pixels for each view pixel with HD art
 var artwork_factor := 0
+# with an area: the image shows only these tiles, and only they are drawn
+var tiles := Rect2i()
 var path := ""
 var thread: Thread
 var _mutex := Mutex.new()
@@ -74,6 +77,7 @@ func run() -> Result:
 	options.show_water_mains = show_underground_water_mains
 	options.transparent_background = transparent_background
 	options.artwork_factor = artwork_factor if render_mode == "city" else 0
+	options.tiles = tiles
 	options.progress = _set_render_fraction
 	var rendered := ScurkCityOutput.render(city_snapshot, palette, sprites, view_size, options)
 
@@ -96,6 +100,7 @@ func run() -> Result:
 	result.error = ""
 	result.path = path
 	result.size = image.get_size()
+	result.origin = rendered.origin
 
 	return result
 
@@ -131,6 +136,8 @@ class Options extends RefCounted:
 	var signs := true
 	var moving_things := true
 	var artwork_factor := 0
+	# with an area: export only these tiles
+	var tiles := Rect2i()
 
 
 class Progress extends RefCounted:
@@ -140,3 +147,5 @@ class Progress extends RefCounted:
 
 class Result extends FileWriteResult:
 	var size := Vector2i.ZERO
+	# the place of the image in the picture of the whole city
+	var origin := Vector2i.ZERO
