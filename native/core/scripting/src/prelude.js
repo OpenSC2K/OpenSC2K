@@ -488,6 +488,72 @@
     );
   }
 
+  // ---------------------------------------------------------------- requests
+
+  // the JSON text of a value, for a program outside the game. A value that
+  // JSON does not have becomes a text, a Map becomes its entries, a Set and a
+  // typed array become arrays, and an object inside itself becomes "[Circular]"
+  function toJson(value) {
+    // the objects from the root to the holder: the value, and what replaced it
+    const path = [];
+
+    function replace(key, item) {
+      if (typeof item === 'bigint' || typeof item === 'symbol') {
+        return item.toString();
+      }
+
+      if (typeof item === 'function') {
+        return `[Function ${item.name || 'anonymous'}]`;
+      }
+
+      if (item === null || typeof item !== 'object') {
+        return item;
+      }
+
+      while (path.length > 0 && path[path.length - 1].holder !== this) {
+        path.pop();
+      }
+
+      if (path.some((entry) => entry.source === item)) {
+        return '[Circular]';
+      }
+
+      let holder = item;
+
+      if (item instanceof Error) {
+        holder = { name: item.name, message: item.message, stack: item.stack };
+      } else if (item instanceof Map) {
+        holder = Array.from(item.entries());
+      } else if (item instanceof Set || (ArrayBuffer.isView(item) && !(item instanceof DataView))) {
+        holder = Array.from(item);
+      }
+
+      path.push({ source: item, holder });
+
+      return holder;
+    }
+
+    try {
+      const text = JSON.stringify(value, replace);
+
+      return text === undefined ? 'null' : text;
+    } catch (error) {
+      return JSON.stringify(inspect(value));
+    }
+  }
+
+  // answers a request from outside the game when the promise of its input settles
+  function settleRequest(promise, id) {
+    promise.then(
+      (completion) => {
+        const value = completion && typeof completion === 'object' && 'value' in completion ? completion.value : completion;
+
+        host('request', id, true, toJson(value));
+      },
+      (error) => host('request', id, false, formatError(error)),
+    );
+  }
+
   // ---------------------------------------------------------------- globals
 
   const runtime = Object.freeze({
@@ -498,6 +564,8 @@
     tick,
     runCommand,
     settle,
+    settleRequest,
+    toJson,
     reportUncaught,
     taps,
     // the game sends an event of a script to the listeners of each runtime:

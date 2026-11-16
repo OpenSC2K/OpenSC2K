@@ -39,6 +39,8 @@ const INSPECTOR_FAIL: &str = "__inspector.fail";
 // the runtime core defines this global; see prelude.js
 const RUNTIME_GLOBAL: &str = "__runtime";
 const HOST_GLOBAL: &str = "__host";
+// answers a request when the promise of its input settles; see prelude.js
+const REQUEST_SETTLE: &str = "settleRequest";
 const MODULE_EXTENSION: &str = ".mjs";
 
 pub struct Engine {
@@ -197,6 +199,28 @@ impl Engine {
         self.finish_call();
 
         result
+    }
+
+    /// Runs input as the console does, for a request from outside the game.
+    /// The value goes to the host when it settles, also after a pending
+    /// promise: `request(id, ok, json)`. `json` is the value as JSON text. A
+    /// rejected promise sends `ok` false and the error text. An input that
+    /// does not compile returns the error here, and sends nothing.
+    pub fn eval_request(&self, source: &str, id: i64) -> Result<(), String> {
+        let _entry = Entry::new(&self.state, self.runtime);
+        let promise = self.eval(
+            &SourceText::new(source),
+            CONSOLE_FILE_NAME,
+            JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_ASYNC,
+        )?;
+        let request = unsafe { Owned::new(self.context, to_js(self.context, &JsData::Int(id))) };
+        let settled = self.call_runtime(REQUEST_SETTLE, &[promise.value(), request.value()]);
+        self.finish_call();
+
+        match settled {
+            Some(_) => Ok(()),
+            None => Err("The script runtime cannot answer requests.".to_string()),
+        }
     }
 
     /// Runs a script file. An `.mjs` file, or a file with `import` or

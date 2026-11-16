@@ -173,6 +173,21 @@ impl ScriptRuntime {
         }
     }
 
+    /// Runs input as the console does, for a request from outside the game:
+    /// `{ok, error}`. The host receives the value when it settles, also after
+    /// a pending promise: `request(id, ok, json)`.
+    #[func]
+    fn eval_request(&self, source: GString, id: i64) -> VarDictionary {
+        let Some(engine) = &self.engine else {
+            return self.missing_engine();
+        };
+
+        match engine.eval_request(&source.to_string(), id) {
+            Ok(()) => result(true, "value", Variant::nil(), ""),
+            Err(error) => result(false, "value", Variant::nil(), &error),
+        }
+    }
+
     /// Runs a script file: `{ok, error}`. `path` names the file in error
     /// stacks, and a module imports other files relative to it.
     #[func]

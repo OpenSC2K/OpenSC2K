@@ -69,6 +69,86 @@ fn console_input_can_await() {
     assert_eq!(engine.eval_console("await Promise.resolve(7)"), Ok(Some("7".to_string())));
 }
 
+/// The arguments of each `request` call of the host: id, ok, json.
+fn request_answers(calls: &Calls) -> Vec<Vec<JsData>> {
+    calls
+        .borrow()
+        .iter()
+        .filter(|(name, _)| name == "request")
+        .map(|(_, arguments)| arguments.clone())
+        .collect()
+}
+
+fn answer(id: i64, ok: bool, json: &str) -> Vec<JsData> {
+    vec![JsData::Int(id), JsData::Bool(ok), JsData::String(json.to_string())]
+}
+
+#[test]
+fn a_request_sends_its_value_as_json_to_the_host() {
+    let (engine, calls) = engine_with_host();
+
+    assert_eq!(
+        engine.eval_request("const base = 20; ({ sum: base + 1, list: [1, 'two'] })", 1),
+        Ok(())
+    );
+    assert_eq!(engine.eval_request("base * 2", 2), Ok(()));
+    assert_eq!(engine.eval_request("undefined", 3), Ok(()));
+
+    assert_eq!(
+        request_answers(&calls),
+        vec![
+            answer(1, true, r#"{"sum":21,"list":[1,"two"]}"#),
+            answer(2, true, "40"),
+            answer(3, true, "null"),
+        ]
+    );
+}
+
+#[test]
+fn a_request_answers_after_its_promise_settles() {
+    let (engine, calls) = engine_with_host();
+
+    assert_eq!(
+        engine.eval_request("await new Promise((done) => { globalThis.finish = done })", 7),
+        Ok(())
+    );
+    assert!(request_answers(&calls).is_empty(), "A pending promise has no answer yet");
+
+    engine.eval_console("finish('later')").unwrap();
+    assert_eq!(request_answers(&calls), vec![answer(7, true, r#""later""#)]);
+}
+
+#[test]
+fn a_request_reports_errors() {
+    let (engine, calls) = engine_with_host();
+
+    let syntax = engine.eval_request("1 +", 1).unwrap_err();
+    assert!(syntax.starts_with("SyntaxError"), "{syntax}");
+    assert!(request_answers(&calls).is_empty(), "An input that does not compile sends no answer");
+
+    assert_eq!(engine.eval_request("throw new RangeError('too far')", 2), Ok(()));
+    let answers = request_answers(&calls);
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0][..2], [JsData::Int(2), JsData::Bool(false)]);
+    assert!(matches!(&answers[0][2], JsData::String(error) if error.starts_with("RangeError: too far")));
+}
+
+#[test]
+fn request_json_keeps_values_that_json_lacks() {
+    let (engine, calls) = engine_with_host();
+    let source = "const loop = { name: 'loop' }; loop.self = loop;\n\
+        ({ big: 5n, map: new Map([['a', 1]]), set: new Set([2]), bytes: new Uint8Array([3, 4]), loop, call() {} })";
+
+    assert_eq!(engine.eval_request(source, 1), Ok(()));
+    assert_eq!(
+        request_answers(&calls)[0][2],
+        JsData::String(
+            r#"{"big":"5","map":[["a",1]],"set":[2],"bytes":[3,4],"loop":{"name":"loop","self":"[Circular]"},"call":"[Function call]"}"#
+                .to_string()
+        )
+    );
+}
+
 #[test]
 fn errors_include_the_type_message_and_stack() {
     let (engine, _) = engine_with_host();

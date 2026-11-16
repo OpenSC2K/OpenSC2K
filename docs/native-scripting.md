@@ -59,6 +59,10 @@ Thus each `ScriptRuntime` method takes `&self`, and the engine holds no borrow
 while JavaScript runs. A host function calls `throw_error(message)` to throw an
 Error in the script.
 
+`eval_request(source, id)` runs input as the console does, for a request of the
+[remote API](remote-api.md). The value goes to the host when it settles, also after a
+pending promise: `request(id, ok, json)`. `toJson` of `prelude.js` makes the JSON text.
+
 The first call from the game starts the time limit (5 seconds by default) and
 records the stack top. A nested call uses the same deadline. After the
 outermost call, the engine runs the promise jobs and reports each rejection
