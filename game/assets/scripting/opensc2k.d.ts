@@ -15,7 +15,7 @@ interface TilePoint {
 
 type TileArgument = TilePoint | [number, number];
 
-/** A date of the city. A month has 25 days. `age` counts the days from the founding. */
+/** A date of the city. A month has 25 days and a year 300 days. `age` counts the days from the founding. */
 interface CityDate {
   year: number;
   month: number;
@@ -525,7 +525,7 @@ interface UiControl {
   type: string;
   /** The node name. */
   name: string;
-  /** The label, or the tooltip. */
+  /** The text that names the control: its own text, or its tooltip. */
   text: string;
   tooltip?: string;
   value?: boolean | number | string | string[];
@@ -535,6 +535,11 @@ interface UiControl {
   step?: number;
   items?: UiItem[];
   rect: ScreenRect;
+  /**
+   * The label that the window shows before the control. Only a control without a name of its own has it:
+   * a field without a text, or a control with the same text as another one. A target can be this label.
+   */
+  label?: string;
   /** True when `ui.image` can save the picture of the control. */
   image?: true;
   /**
@@ -761,7 +766,7 @@ interface Game {
   state(): GameState;
   /** The actions of the keys and the menus. */
   actions(): GameAction[];
-  /** Runs an action as its key does, such as `'window_budget'`. False when it does nothing now. */
+  /** Runs an action as its key does, such as `'window_budget'`. False when it does nothing now. It throws while a modal window shows. */
   action(id: string): boolean;
   /** Makes the terrain and founds a city, as the New City window does. Console scripts only. */
   newCity(options?: NewCityOptions): GameState;
@@ -979,11 +984,11 @@ interface Ui {
   windows(): UiWindow[];
   /** The controls of a window that take input. Without a window: the top one. */
   controls(window?: string): UiControl[];
-  /** The texts that a window shows, top to bottom. */
+  /** The texts that a window shows, top to bottom, also the texts that a chart, a debug table or the newspaper draws. */
   texts(window?: string): string[];
   /** Presses a button. A check box changes its state. */
   press(target: UiTarget): true;
-  /** Sets a text field, a number or a check box. `submit` also sends Enter in a text field. */
+  /** Sets a text field, a number or a check box. `submit` also sends Enter in a text field or a text area, such as the input of the Console window. */
   set(target: UiTarget, value: string | number | boolean, options?: { submit?: boolean }): true;
   /**
    * Chooses an item by its text or index: an option, a tab, a row of a list or a tree, an item of a menu
@@ -993,11 +998,11 @@ interface Ui {
   choose(target: UiTarget, item: string | number | (string | number)[], options?: { activate?: boolean }): true;
   /** The menus of the menu bar with their items. */
   menus(): UiMenu[];
-  /** Chooses an item of the menu bar: `ui.menu('File', 'Save City')`. */
+  /** Chooses an item of the menu bar: `ui.menu('File', 'Save City')`. It throws while a modal window shows. */
   menu(...path: (string | number)[]): true;
-  /** Answers a dialog with its OK button. Without a window: the top one. */
+  /** Answers a dialog with its OK button. Without a window: the top one. On a panel of the game, such as the query result, it presses the OK button. */
   accept(window?: string): true;
-  /** Closes a window as its close button does. A dialog takes it as Cancel. */
+  /** Closes a window as its close button does. A dialog takes it as Cancel. On a panel of the game, it presses the Close or the Cancel button. */
   close(window?: string): true;
   /** Selects a full path in the file dialog that shows. */
   chooseFile(path: string): true;

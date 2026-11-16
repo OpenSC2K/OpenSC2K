@@ -42,15 +42,17 @@ tools/remote_game.py city-data --area 40 40 8 8 --fields structure,zone
 tools/remote_game.py screenshot screen.png --scale 0.5
 tools/remote_game.py city-image part.png --area 40 40 12 12 --size large
 tools/remote_game.py control-image tile.png --scale 4   # the canvas of the SCURK editor
-tools/remote_game.py guide
+tools/remote_game.py guide                 # the guide for an agent
+tools/remote_game.py types                 # the TypeScript declarations
 tools/remote_game.py stop
 ```
 
 `start` uses a disposable profile and the packs in `ext/`: the settings and the
 cities of the player do not change. `--profile player` uses the normal profile.
 `--port` or the environment variable `OPENSC2K_API_PORT` selects another port, thus
-more than one game can run. The game plays no sound. `eval` exits with status 1
-when the script failed.
+more than one game can run. The game plays no sound. `eval` and `city-data` exit
+with status 1 when the script failed. `stop` closes the game and removes the
+disposable profile: save a city to a path of your own first.
 
 ## Routes
 
@@ -148,8 +150,8 @@ have no functions of their own.
 
 Some controls draw their content: the charts of the Population, Industry and
 Neighbors windows, the newspaper, the tables of the Debug window, and the canvas
-and the palette of the SCURK editor. Such a control has no labels to read. It tells its content to `UiProbe`
-with three optional functions:
+and the palette of the SCURK editor. Such a control has no labels to read. It
+tells its content to `UiProbe` with three optional functions:
 
 | Function of the control | Scripts get it as |
 | --- | --- |
@@ -157,14 +159,24 @@ with three optional functions:
 | `probe_data() -> Dictionary` | `data` of the control in `ui.controls()`. A `Vector2` is a place in the control; scripts get it in pixels of the game window. |
 | `probe_image() -> Image` | The picture of `ui.image` and `GET /control-image`. The control makes it without the screen. |
 
-A control that code made without a name, and that has no text of its own, gets
-`label`: the text of the label that the window shows before it. A tab or a row of
-a tree that shows only an icon has its tooltip as its text.
-
 Add these functions to a new control that draws text, takes a click on a drawn
-part, or shows a picture that a script must see. `ui.menu` and `game.action` do
-nothing while a modal window shows, as the menu bar and the keys of a player;
-they throw an error that names the window.
+part, or shows a picture that a script must see.
+
+`UiProbe` also names the controls that have no name:
+
+- A control that code made without a node name, and that has no text of its own
+  or the text of another control, gets `label`: the text of the label that the
+  window shows before it, in its row. A script can use the label as the target.
+- A tab, or a row of a tree, that shows only an icon has its tooltip as its text.
+
+The functions follow the limits of a player:
+
+- `ui.menu` and `game.action` do nothing while a modal window shows, as the menu
+  bar and the keys. They throw an error that names the window.
+- `ui.accept` and `ui.close` also work on a full-screen panel of the game, such
+  as the query result: they press its OK button, or its Close or Cancel button.
+- `tools.apply` uses the brush of a brush tool, and it returns `window` when the
+  tool asks first: a bridge, a tunnel or a connection to a neighbor.
 
 A simulation prompt stops `sim.advance` and `sim.runTo`. Their answer has the
 reason in `stopped`, and `game.state().windows` has the window:
@@ -198,7 +210,8 @@ whole sprite of each structure that has a tile in the area. A map of 1024 tiles 
 more is too large for one image at some tile sizes; an area of it is not.
 
 The simulation runs in the same way in both. `sim.advance` runs days as fast as the
-computer can; `sim.speed` and `sim.runTo` run in real time, as for a player.
+computer can; `sim.speed` and `sim.runTo` run in real time, as for a player. A year
+of the game has 300 days: 12 months of 25 days.
 
 ## Safety
 
@@ -223,10 +236,13 @@ computer can; `sim.speed` and `sim.runTo` run in real time, as for a player.
 | `game/src/application/automation/ui_probe.gd`, `ui_operator.gd`, `input_sender.gd` | Read the interface, use its controls, send input events. |
 | `game/src/application/automation/city_text_map.gd` | The city as text. |
 | `game/src/application/scripting_game_api.gd`, `scripting_ui_api.gd`, `scripting_input_api.gd` | The host functions of `game`, `ui` and `input`. |
+| `game/src/application/scripting_api.gd` | The host functions of `tools`, `sim` and `view`: `tools.apply`, the tool list. |
 | `game/src/application/scripting_reports_api.gd` | The host functions that give the values of the report windows and the newspaper. |
 | `game/src/application/scripting_city_data_api.gd` | `city.cell` and `city.cells`: the city as data. |
 | `native/core/scripting` | `Engine::eval_request` runs a request and sends its value as JSON to the host: `request(id, ok, json)`. |
 | `tools/remote_game.py` | The shell client. |
 
 The tests are `remote_api_test`, `ui_automation_test` and `ui_automation_test_native`
-in the `scripting` validation domain.
+in the `scripting` validation domain. `remote_api_test` plays through the port: it
+founds cities, uses each kind of tool, reads the city as data and as images, answers
+windows and draws in the SCURK editor.

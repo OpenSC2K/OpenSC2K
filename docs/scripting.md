@@ -17,12 +17,12 @@ This API is new. Names and fields can change.
 - [Rules for scripts](#rules-for-scripts)
 - [Globals](#globals)
 - [game](#game): events, console commands, storage, status bar
-- [city](#city): city values, tiles, data maps, graphs, signs, name
-- [budget](#budget): taxes, funding, ordinances, bonds
+- [city](#city): city values, tiles and cells as data, data maps, graphs, signs, the report windows, the newspaper, images
+- [budget](#budget): taxes, funding, industry taxes, the amounts of the budget, ordinances, bonds
 - [sim](#sim): speed, steps, dates, disasters
-- [tools](#tools): select and use the player tools
+- [tools](#tools): select and use the player tools, in a city and in the terrain editor
 - [view](#view): camera, zoom, rotation, view modes
-- [ui](#ui): message windows, sounds, control of windows, menus and dialogs
+- [ui](#ui): message windows, sounds, control of windows, menus and dialogs, pictures of drawn controls
 - [input](#input): mouse and keyboard input
 - [Remote API](remote-api.md): a program outside the game, such as an LLM agent, runs scripts through a local port
 - [Events](#events)
@@ -294,13 +294,13 @@ for (const key of game.storage.keys()) {
 | `city.loaded` | True when a city is open. |
 | `city.info()` | `{ name, mayor, size, funds, population, foundingYear, difficulty, scenario, weather, path, date, demand }`. |
 | `city.name`, `city.mayor`, `city.size`, `city.population` | Single values. `size` is the number of tiles on each map edge. |
-| `city.date` | `{ year, month, day, age }`. A month has 25 days. `age` counts the days from the founding. |
+| `city.date` | `{ year, month, day, age }`. A month has 25 days, thus a year has 300 days. `age` counts the days from the founding. |
 | `city.demand` | `{ residential, commercial, industrial }`, from -2000 to 2000. |
 | `city.funds` | Get or set the funds. |
 | `city.addFunds(amount)` | Adds a positive or negative amount. Returns the new funds. |
 | `city.tile(x, y)` | The stored values of a tile, or `null` outside the map. See below. |
 | `city.cell(x, y)` | Each value of one tile as data, with names: `{ x, y, altitude, slope, water, structure, structureId, zone, density, underground, undergroundId, powered, needsPower, watered, piped, sign, traffic, pollution, landValue, crime, police, fire, populationDensity, growth, symbol, query }`. `query` is what the Query tool tells: `{ title, kind, altitudeFeet, landValue, crime, pollution, lines, flags, things, text }`. |
-| `city.cells(area, options)` | The same values for each tile of an area, or of the whole map without an area: `{ x, y, width, height, format, fields, cells }`. A cell leaves out its empty values (an empty text, 0, false); `empty: true` keeps them. `fields` selects values. `format: 'columns'` gives `columns`, one array for each value, in place of `cells`; it is the default for more than 4096 tiles. The tile `(x + i, y + j)` is at index `j * width + i`. One answer holds 2,000,000 values at most. |
+| `city.cells(area, options)` | The same values for each tile of an area, or of the whole map without an area: `{ x, y, width, height, format, fields, cells }`. A cell leaves out its empty values (an empty text, 0, false); `empty: true` keeps them. `fields` selects values. `density` is `low-density` or `high-density`; `water` is `fresh` or `salt`; the data maps go from 0 to 255. `format: 'columns'` gives `columns`, one array for each value, in place of `cells`; it is the default for more than 4096 tiles. The tile `(x + i, y + j)` is at index `j * width + i`. One answer holds 2,000,000 values at most. |
 | `city.cellFields` | The names of the values of a cell. |
 | `city.data(name, x, y)` | The value of a data map at a tile. |
 | `city.dataMap(name)` | A whole data map: `{ name, size, scale, values, at(x, y) }`. |
@@ -444,6 +444,7 @@ if (city.info().path) {
 | `budget.report()` | The amounts of the Budget window for the stored rates: `{ year, yearEnd, recordedMonths, funds, yearToDate, estimate, yearEndFunds, lines, bonds }`. A line is `{ key, name, group, rate, yearToDate, estimate, months }`. An amount is positive for income and negative for a cost. `bonds` is `{ count, outstanding, rates, credit, bankRate, nextRate, cityValue }`. |
 | `budget.taxes` | `{ residential, commercial, industrial }`, tax rates in percent. |
 | `budget.funding` | `{ police, fire, health, school, college, road, highway, bridge, rail, subway, tunnel }`, in percent. |
+| `budget.industryTaxes` | The tax rate of each industry in percent: `{ steelMining, textiles, petrochemical, food, construction, automotive, aerospace, finance, media, electronics, tourism }`. |
 | `budget.set(changes)` | Changes the named values: `{ taxes, funding, industryTaxes, autoBudget }`. Tax rates go from 0 to 22, funding from 0 to 100, industry tax rates from 0 to 20. An industry is a key of `city.industry()` or `all`: `{ industryTaxes: { all: 3, textiles: 7 } }`. Returns `budget.info()`. |
 | `budget.ordinances()` | Each ordinance: `{ key, name, category, enabled, cost }`. `cost` is the yearly amount; a tax ordinance has income. |
 | `budget.setOrdinance(key, enabled)` | Enables or disables an ordinance by its key or its name. Returns the new state. |
@@ -456,7 +457,9 @@ The ordinance keys are `salesTax`, `incomeTax`, `legalizedGambling`,
 `businessAdvertising`, `cityBeautification`, `annualCarnival`,
 `energyConservation`, `nuclearFreeZone`, `homelessShelter` and `pollutionControls`.
 
-The budget cannot change while the yearly budget window is open.
+The budget cannot change while the yearly budget window is open. The game settles
+the budget one time each year, in January: the funds change then, and
+`budget.report()` gives the amounts of the year until now.
 
 ```js
 // lower the industrial tax and fund the police fully
@@ -663,9 +666,9 @@ and the [remote API](remote-api.md) can use them.
 | --- | --- |
 | `ui.windows()` | The windows that show, the lowest first: `[{ id, type, title, text, modal, blocking, focused, rect, buttons, items }]`. The first is the game window, with the id `main`. The last takes the input. A full-screen panel of the game, such as the main menu or the query result, is a window too. `blocking` tells that the simulation waits while the window shows. |
 | `ui.controls(window)` | The controls of a window that take input: `[{ id, kind, type, name, text, value, disabled, rect, items, ... }]`. Without a window: the top one. `kind` is `button`, `check`, `option`, `menu`, `text`, `number`, `tabs`, `list`, `tree` or `custom`. A control that draws its content can have `data`, its values for scripts, and `image: true` when `ui.image` can save its picture. A control without a name of its own has `label`: the label that the window shows before it. A target can be that label: `ui.set('Police', 80)` in the Budget window. |
-| `ui.texts(window)` | The texts that a window shows, top to bottom, also the texts that a chart or the newspaper draws. |
+| `ui.texts(window)` | The texts that a window shows, top to bottom, also the texts that a chart, a table of the Debug window or the newspaper draws. |
 | `ui.press(target)` | Presses a button. A check box changes its state. |
-| `ui.set(target, value, { submit })` | Sets a text field, a number or a check box. `submit` also sends Enter in a text field. |
+| `ui.set(target, value, { submit })` | Sets a text field, a number or a check box. `submit` also sends Enter in a text field or a text area: the input of the Console window then runs its line. |
 | `ui.choose(target, item, { activate })` | Chooses an item by its text or its index: an option, a tab, a row of a list or a tree, an item of a menu button. With the id of a popup menu that shows, it chooses an item of that menu. `activate` also sends the double click of a list or a tree. |
 | `ui.menus()`, `ui.menu(...path)` | The menus of the menu bar with their items, and a choice of an item: `ui.menu('File', 'Save City')`. `ui.menu` throws while a modal window shows. |
 | `ui.accept(window)`, `ui.close(window)` | The OK button of a dialog, and the close button of a window. A dialog takes a close as Cancel. Without a window: the top one. On a full-screen panel of the game, such as the query result, they press its OK or its Close button. |
@@ -675,8 +678,9 @@ and the [remote API](remote-api.md) can use them.
 | `ui.image(target, path, { scale })` | Saves the picture of a control that draws its content, such as the canvas of the SCURK editor: `{ path, width, height }`. `ui.controls()` marks such a control with `image: true`. Without a target: the first such control of the top window. `scale` makes each pixel larger, from 1 to 16. A headless game can do this. |
 
 A window is named by its `id`, its title or its `type`. A `target` is the `id` of a
-control, its text, or its node name. The search starts in the top window and stops at
-a modal window, as the input of the player does. When more than one control matches,
+control, its text, its node name or its `label`. A tab, or a row of a tree, that
+shows only an icon has its tooltip as its text. The search starts in the top window
+and stops at a modal window, as the input of the player does. When more than one control matches,
 the error lists their ids. The `ui` functions change a control and send its signals,
 thus the game runs the same code as after a click. A `rect` is in pixels of the game
 window.
@@ -741,7 +745,7 @@ nothing. `game.events` lists the types.
 | `city.closed` | | The city closes after the game ends. |
 | `city.saved` | `path` | The city was saved. |
 | `city.renamed` | `name` | The city has a new name. |
-| `budget.changed` | `taxes`, `funding`, `autoBudget`, `bonds` | The Budget window, the yearly budget or a script changed the budget. |
+| `budget.changed` | `taxes`, `funding`, `industryTaxes`, `autoBudget`, `bonds` | The Budget window, the yearly budget or a script changed the budget. |
 | `sim.day` | `year`, `month`, `day`, `age` | A simulation day ended. |
 | `sim.month` | `year`, `month` | A new month started. |
 | `sim.year` | `year` | A new year started. |
@@ -763,7 +767,7 @@ nothing. `game.events` lists the types.
 | `mod.loaded` | `id`, `name`, `version` | A mod started. |
 | `mod.unloaded` | `id` | A mod stopped. |
 
-`tool` is `{ group, subtool, groupName, name, cost }`. `start` and `finish` are
+`tool` is `{ group, subtool, groupName, name, cost, size }`. `start` and `finish` are
 `{ x, y }`. The console runtime receives each event first, then each mod in load
 order. When a listener cancels a cancelable event, the later runtimes see
 `event.cancelled`.
@@ -792,8 +796,9 @@ game.on('budget.changed', (event) => console.log(`The residential tax is ${event
 // simulation events
 game.on('sim.year', (event) => console.log(`Happy new year ${event.year}!`));
 game.on('sim.speed', (event) => console.log(`Speed: ${event.speed}`));
-game.on('news', (event) => console.log(`News story ${event.type} (${event.argument})`));
-game.on('notice', (event) => console.log(`Notice ${event.id}`));
+game.on('news', (event) => console.log(`News story ${event.type}: ${event.name}`));
+game.on('notice', (event) => console.log(`Notice ${event.id}: ${event.text}`));
+game.on('sound', (event) => console.log(`Sounds ${event.ids.join(', ')}`));
 game.on('budget.prompt', () => game.status('Check the yearly budget.'));
 game.on('military.proposal', () => game.status('The military wants a base.'));
 game.on('game.over', (event) => console.log(`Game over: ${event.type}, funds $${event.funds}`));
@@ -843,13 +848,14 @@ The game API has three parts:
    declares their types; add each new member there too.
 2. GDScript functions answer the host calls. `ApplicationScriptingApi` in
    `game/src/application/scripting_api.gd` holds `sim`, `tools`, `view` and a part of
-   `game`; `ScriptingGameApi`, `ScriptingCityApi`, `ScriptingBudgetApi`,
-   `ScriptingUiApi` and `ScriptingInputApi` hold the others. A class lists the
-   functions that a mod cannot call in `RESTRICTED`.
+   `game`; `ScriptingGameApi`, `ScriptingCityApi`, `ScriptingCityDataApi`,
+   `ScriptingReportsApi`, `ScriptingBudgetApi`, `ScriptingUiApi` and
+   `ScriptingInputApi` hold the others. A class lists the functions that a mod
+   cannot call in `RESTRICTED`.
    Each class maps names to functions in `handlers()`. A function receives the
    arguments as an Array and returns the result. A failed call returns
    `fail(message)`; the script then gets an Error. `ScriptingApiBase` has the
-   shared helpers: `need_city`, `point`, `argument` and `inside_map`.
+   shared helpers: `need_city`, `point`, `argument`, `inside_map` and `take_failure`.
 3. `ApplicationScripting.emit(type, detail, cancelable)` sends an event.
    `cancelled(type, detail)` sends a cancelable event and returns true when a
    listener cancelled it. Add each new event type to `ApplicationScripting.EVENTS`.
@@ -857,4 +863,7 @@ The game API has three parts:
    runtime, for functions that differ between mods, such as `game.storage`.
 
 Add a test to the `scripting` validation domain for each new function and event:
-`tools/validate_project.sh --suite scripting`.
+`tools/validate_project.sh --suite scripting`. Add the function to the tables of
+this page, and to the guide for agents in `game/assets/scripting/remote-api.md` when
+an agent needs it. A control that draws its content gives it to scripts with the
+probe functions; see [Remote API](remote-api.md#what-an-agent-can-do).

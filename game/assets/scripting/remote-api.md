@@ -44,7 +44,7 @@ game.state();
 ```js
 game.newCity({ name: 'Springfield', difficulty: 'easy', year: 1900, size: 128, seed: 7 });
 ui.close(); // the founding newspaper waits for a close
-game.files(); // { cities, scenarios, saved, savedFolder }: files that game.open takes
+game.files(); // { cities, scenarios, saved, savedFolder, autosaves }: files that game.open takes
 game.open('/full/path/CITY.SC2', { discard: true }); // discard drops unsaved changes
 await game.saveAs('/full/path/my-city.sc2x');
 city.save(); // to the file of the city
@@ -58,7 +58,7 @@ opens), `ocean`, `river`, `hills`, `water`, `trees` (0 to 47), `features` and `e
 ## Read the city
 
 ```js
-city.info(); // name, funds, population, date, demand
+city.info(); // name, funds, population, date, demand, weather
 city.cell(64, 64); // each value of one tile: structure, zone, terrain, power, water, data maps, the query text
 city.cells({ x: 40, y: 40, width: 8, height: 8 }); // { cells: [{ x, y, altitude, structure, zone, ... }] }
 city.cells({ x: 40, y: 40, width: 40, height: 20 }, { fields: ['structure', 'zone', 'powered'] });
@@ -68,7 +68,7 @@ city.tile(64, 64); // the stored values, the structure name, the zone name
 city.query(64, 64); // what the Query tool shows
 city.census(); // tiles of each structure and zone, powered and unpowered tiles
 city.find('Police Station'); // [{ x, y, name }]
-city.signs(); // [{ x, y, text }]
+city.signs(); // [{ x, y, text }], also the signs at the connections to neighbors
 city.region(40, 40, 20, 20); // arrays of stored values for your own analysis
 city.dataMap('pollution'); city.graph('Residents');
 budget.info(); budget.ordinances(); city.demand;
@@ -130,11 +130,26 @@ tools.undo();
   Terrain needs the height: `tools.apply([x, y], null, { levels: 2 })`. Raise Sea
   Level and Lower Sea Level do their work when `tools.select` selects them.
   `ui.set('BrushSizeInput', 5)` sets the brush of Trees, Water and Place Forest.
-- A drag of Trees or Water changes the tiles of a line. A drag of Demolish, or of a zone,
-  changes a rectangle. Use one call for each row to fill a rectangle with trees.
-- A zone grows only beside a tile that has power. Connect each zone block to a power
-  plant with power lines. Zones need a road, a rail line or a highway within three tiles.
-- Residents come when the city has jobs: give power to the industrial zones first.
+- **Drag shapes:** a drag of Trees or Water changes the tiles of a line. Place Forest
+  changes a round patch 7 tiles wide. A drag of Demolish, or of a zone, changes a
+  rectangle. Use one call for each row to fill a rectangle with trees.
+- **Power:** a zone tile grows only when it, or a tile beside it, has power. An empty
+  zone does not carry power; a building does. Thus drag Power Lines through each zone
+  block: the zone stays under the line, and a building takes the place of the line. A
+  power line crosses a road. `city.census().unpowered` counts the tiles without power,
+  and `city.cell(x, y).query.lines` of a power plant tells its load: build the next
+  plant before the load is 100%.
+- **Roads:** a zone tile needs a road, a rail line or a highway within three tiles. Two
+  streets 7 tiles apart serve the 6 rows between them.
+- **Water:** each building has pipes under it, but a street has none. Put a Water Pipes
+  tile under each street between two blocks, and a pipe from the pumps to the town. A
+  pump needs power; a pump beside water gives twice the water.
+  `city.cells(null, { fields: ['watered', 'piped'] })` shows what the water reaches.
+- **Demand:** `city.demand` goes from -2000 to 2000 for each zone type. Zone what has
+  demand. Residents come when the city has jobs: give power to the industrial zones first.
+- **Money:** the game settles the budget one time each year, in January; `city.funds`
+  changes then. `budget.report()` gives the income and the cost of each line, and
+  `budget.issueBond()` borrows $10,000.
 
 ## Run the simulation
 
@@ -145,6 +160,7 @@ sim.speed = 'Llama'; sim.pause(); sim.resume(); // real time, for a person who w
 sim.suspended; // '' or the reason: 'prompt: annual budget', 'window: ...', 'newspaper', 'game over'
 ```
 
+A month has 25 days and a year 300 days: `sim.advance(300)` runs one year.
 `advance` and `runTo` stop early when the simulation must wait. `stopped` gives the
 reason. Answer the window, then continue. While a disaster is active, the game runs
 the ticks of the disaster and no days: `advance` then stops with `'disaster: Fire'`.
@@ -166,7 +182,7 @@ Use these for each action that has no function of its own.
 
 ```js
 ui.windows(); // the lowest first; the last takes the input: { id, type, title, text, modal, blocking, buttons }
-ui.controls(); // the controls of the top window: { id, kind, name, text, value, disabled, items, rect }
+ui.controls(); // the controls of the top window: { id, kind, name, text, label, value, disabled, items, rect }
 ui.texts(); // the texts that the top window shows
 ui.press('OK'); // a button by its text, its node name or its id
 ui.set('CityNameInput', 'Springfield'); // a text field, a number, a check box
@@ -178,10 +194,14 @@ game.actions(); game.action('window_budget'); // the actions of the keys
 ```
 
 - `ui.controls('main')` lists the controls of the game window: the toolbar and the menu bar.
+- A target is the text of a control, its node name, its id or its `label`: the label
+  that the window shows before a field without a name. `ui.set('Police', 80)` sets the
+  police funding in the Budget window.
 - When more than one control has the same text, the error lists their ids. Use an id.
 - A control under a modal window cannot be used. Answer the modal window first. `ui.menu`
   and `game.action` also throw while a modal window shows.
-- `ui.texts()` also gives the texts that a window draws: the charts and the newspaper.
+- `ui.texts()` also gives the texts that a window draws: the charts, the newspaper and
+  the tables of the Debug window. A tab that shows only an icon has its tooltip as its text.
 
 The newspaper opens by itself (`suspended` is then `'newspaper'`), or from its menu:
 

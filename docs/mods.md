@@ -176,8 +176,9 @@ Mods share the game, but not each other's state:
   key input. Those functions are for console scripts and the
   [remote API](remote-api.md); in a mod they throw an Error. They are
   `game.newCity`, `game.open`, `game.saveAs`, `game.files`, `game.mainMenu`,
-  `game.quit`, `game.settings`, `game.debugMode`, `city.exportPng`, all of
-  `input`, and the `ui` functions other than `alert`, `status` and `playSound`.
+  `game.quit`, `game.settings`, `game.preferences`, `game.debugMode`,
+  `city.exportPng`, all of `input`, and the `ui` functions other than `alert`,
+  `status` and `playSound`.
 
 The game API can change the city and use cheats, as the Debug window can. Run
 only the mods that you trust with your cities.
