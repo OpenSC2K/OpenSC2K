@@ -15,6 +15,7 @@ const FUNDING := {"police": Sc2BudgetLayout.POLICE, "fire": Sc2BudgetLayout.FIRE
 	"school": Sc2BudgetLayout.SCHOOL, "college": Sc2BudgetLayout.COLLEGE, "road": Sc2BudgetLayout.ROAD,
 	"highway": Sc2BudgetLayout.HIGHWAY, "bridge": Sc2BudgetLayout.BRIDGE, "rail": Sc2BudgetLayout.RAIL,
 	"subway": Sc2BudgetLayout.SUBWAY, "tunnel": Sc2BudgetLayout.TUNNEL}
+const INDUSTRY_KEYS := ScriptingReportsApi.INDUSTRY_KEYS
 # the limits of the Budget window
 const MAXIMUM_TAX := 22
 const MAXIMUM_FUNDING := 100
@@ -38,7 +39,7 @@ func handlers() -> Dictionary[String, Callable]:
 	}
 
 
-# { taxes, funding, autoBudget, bonds }
+# { taxes, funding, industryTaxes, autoBudget, bonds }
 func _info(_arguments: Array) -> Variant:
 	if not need_city():
 		return null
@@ -48,9 +49,30 @@ func _info(_arguments: Array) -> Variant:
 	return {
 		"taxes": _named(values, TAXES),
 		"funding": _named(values, FUNDING),
+		"industryTaxes": _industry_taxes(),
 		"autoBudget": app.document_state.city.auto_budget_enabled(),
 		"bonds": app.document_state.city.document.misc_u32(Bonds.MISC_BONDS),
 	}
+
+
+# the tax rate of each industry, as the Industry window shows it: { textiles: 0, ... }
+func _industry_taxes() -> Dictionary:
+	var data := IndustryWindowControl.snapshot(app.document_state.city)
+	var result := {}
+
+	for industry in INDUSTRY_KEYS.size():
+		result[INDUSTRY_KEYS[industry]] = data.tax_rates[industry] if data.ok else 0
+
+	return result
+
+
+# the industry of a script key or of a name of the Industry window, or -1
+static func _industry_index(name: String) -> int:
+	for industry in INDUSTRY_KEYS.size():
+		if name.to_lower() in [INDUSTRY_KEYS[industry].to_lower(), IndustryWindowControl.INDUSTRY_NAMES[industry].to_lower()]:
+			return industry
+
+	return -1
 
 
 static func _named(values: PackedInt32Array, names: Dictionary) -> Dictionary:
@@ -62,7 +84,8 @@ static func _named(values: PackedInt32Array, names: Dictionary) -> Dictionary:
 	return result
 
 
-# changes the named taxes and funding: { taxes: { residential: 9 }, funding: { police: 80 }, autoBudget }
+# changes the named taxes and funding: { taxes: { residential: 9 }, funding: { police: 80 },
+# industryTaxes: { textiles: 5 }, autoBudget }. The industry `all` sets each industry
 func _set_budget(arguments: Array) -> Variant:
 	if not need_city():
 		return null
@@ -96,11 +119,37 @@ func _set_budget(arguments: Array) -> Variant:
 
 			values[names[name]] = int(value)
 
+	var industry_taxes: Variant = changes.get("industryTaxes", {})
+
+	if not industry_taxes is Dictionary:
+		return fail("industryTaxes must be an object.")
+
+	for name: String in industry_taxes:
+		var rate: Variant = industry_taxes[name]
+
+		if name != "all" and _industry_index(name) < 0:
+			return fail("Unknown industry %s. It must be all or one of: %s." % [name, ", ".join(INDUSTRY_KEYS)])
+
+		if not is_number(rate) or int(rate) < 0 or int(rate) > IndustryTaxCommand.MAXIMUM_INDUSTRY_TAX:
+			return fail("industryTaxes.%s must be a number from 0 to %d." % [name, IndustryTaxCommand.MAXIMUM_INDUSTRY_TAX])
+
 	var auto_budget := bool(changes.get("autoBudget", app.document_state.city.auto_budget_enabled()))
 	var stored := Budget.set_funding(app.document_state.city, values, auto_budget)
 
 	if not stored.ok:
 		return fail("Cannot save the budget: %s." % stored.error)
+
+	# `all` first, thus a named industry can differ from it
+	for name: String in (["all"] if industry_taxes.has("all") else []) + industry_taxes.keys().filter(
+			func(key: String) -> bool: return key != "all"):
+		var changed := IndustryTaxCommand.set_tax_rate(
+			app.document_state.city, maxi(_industry_index(name), 0), int(industry_taxes[name]), name == "all")
+
+		if not changed.ok:
+			return fail("Cannot save the industry tax rates: %s." % changed.error)
+
+	if app.city_dialogs != null and app.city_dialogs.industry_window != null:
+		app.city_dialogs.industry_window.refresh_city(app.document_state.city)
 
 	app.interface.refresh_details()
 	app.scripting.emit_budget_changed()

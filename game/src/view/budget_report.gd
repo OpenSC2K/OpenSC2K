@@ -5,6 +5,7 @@ extends RefCounted
 @warning_ignore_start("integer_division")
 
 const Budget = preload("res://src/simulation/economy/budget_phase.gd")
+const Bonds = preload("res://src/simulation/economy/bond_command.gd")
 const GROUP_NAMES := ["Property taxes", "Ordinances", "Bond payments", "Police", "Fire", "Health & welfare", "Education", "Roads & transit"]
 const GROUPS := [[0, 1, 2], [3], [4], [5], [6], [7], [8, 9], [10, 11, 12, 13, 14, 15]]
 const NAMES := [
@@ -105,6 +106,20 @@ static func capture(city: CityState, proposed: PackedInt32Array) -> BudgetReport
 	return report
 
 
+## The terms of the bonds of a city: the number of bonds, the bank rate in
+## percent, the credit rating from 0 (AAA) to 6 (F), and the city value in $1000.
+static func bond_terms(city: CityState) -> BondTerms:
+	var terms := BondTerms.new()
+	terms.count = mini(city.document.misc_u32(Bonds.MISC_BONDS), Bonds.MAX_BONDS)
+	terms.federal = BudgetAdvice._signed_word(city.document.misc_u32(Bonds.MISC_FEDERAL_RATE))
+	var value := CityValuePhase.calculate(city)
+	terms.city_value = value.city_value if value.ok else city.document.misc_u32(Bonds.MISC_CITY_VALUE)
+	terms.credit = clampi(BudgetAdvice._signed_word(
+		((terms.count * 25000) & 0xffffffff) / maxi((terms.city_value + 1) & 0xffffffff, 1)), 0, 6)
+
+	return terms
+
+
 static func group_amount(amounts: PackedInt64Array, group: int) -> int:
 	var total := 0
 
@@ -125,3 +140,10 @@ static func wrap_i32(value: int) -> int:
 
 static func budget_integer(value: int, extended: bool) -> int:
 	return value if extended else wrap_i32(value)
+
+
+class BondTerms extends RefCounted:
+	var count := 0
+	var federal := 0
+	var credit := 0
+	var city_value := 0

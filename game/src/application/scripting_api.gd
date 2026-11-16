@@ -2,14 +2,15 @@ class_name ApplicationScriptingApi
 extends ScriptingApiBase
 ## The game functions that scripts call through `__runtime.host(name, ...)`.
 ## game/assets/scripting/api.js wraps them as the script objects. This file
-## holds `game`, `sim`, `tools` and `view`; ScriptingCityApi, ScriptingBudgetApi
-## and ScriptingUiApi hold the others. See docs/scripting.md.
+## holds `game`, `sim`, `tools` and `view`; ScriptingCityApi, ScriptingBudgetApi,
+## ScriptingReportsApi and ScriptingUiApi hold the others. See docs/scripting.md.
 
 const Tools = preload("res://src/tools/shared/tool_catalog.gd")
 const GameSpeed = preload("res://src/simulation/core/game_speed_controller.gd")
 
 var city_api: ScriptingCityApi
 var budget_api: ScriptingBudgetApi
+var reports_api: ScriptingReportsApi
 var ui_api: ScriptingUiApi
 var input_api: ScriptingInputApi
 var game_api: ScriptingGameApi
@@ -22,6 +23,7 @@ func _init(application: CityApplication) -> void:
 	super(application, {"failure": "", "context": null})
 	city_api = ScriptingCityApi.new(application, call_state)
 	budget_api = ScriptingBudgetApi.new(application, call_state)
+	reports_api = ScriptingReportsApi.new(application, call_state)
 	ui_api = ScriptingUiApi.new(application, call_state)
 	input_api = ScriptingInputApi.new(application, call_state)
 	game_api = ScriptingGameApi.new(application, call_state)
@@ -33,14 +35,6 @@ func _init(application: CityApplication) -> void:
 ## of the mod, or they control the interface and the input of the player.
 static func restricted() -> PackedStringArray:
 	return ScriptingUiApi.RESTRICTED + ScriptingInputApi.RESTRICTED + ScriptingGameApi.RESTRICTED + ScriptingCityApi.RESTRICTED
-
-
-## The message of the failed call, or an empty text. Clears it.
-func take_failure() -> String:
-	var message: String = call_state.failure
-	call_state.failure = ""
-
-	return message
 
 
 func handlers() -> Dictionary[String, Callable]:
@@ -82,7 +76,7 @@ func handlers() -> Dictionary[String, Callable]:
 		"view.setLayer": _view_set_layer,
 	}
 
-	for api in [city_api, budget_api, ui_api, input_api, game_api]:
+	for api in [city_api, budget_api, reports_api, ui_api, input_api, game_api]:
 		result.merge(api.handlers())
 
 	return result

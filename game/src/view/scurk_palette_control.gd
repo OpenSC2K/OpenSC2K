@@ -198,6 +198,21 @@ func import_state(state: Dictionary) -> void:
 	ramp_changed.emit(ramp_indices.duplicate())
 
 
+## The values that a script needs to choose a color, for UiProbe: the cells
+## go left to right in rows of `columns`, each `cell` pixels of the control
+## wide. `indices` holds the palette index of each cell and `colors` its color.
+func probe_data() -> Dictionary:
+	var colors := PackedStringArray()
+
+	for index in visible_indices:
+		colors.append("#" + palette.color(display_palette_index(index)).to_html(false) if palette != null and palette.is_valid() else "")
+
+	return {
+		"columns": COLUMN_COUNT, "selected": selected_color_index, "indices": visible_indices, "colors": colors,
+		"origin": Vector2.ZERO, "end": Vector2(COLUMN_COUNT, COLUMN_COUNT) * cell_size,
+	}
+
+
 func index_at(pointer_position: Vector2) -> int:
 	var column := floori(pointer_position.x / cell_size)
 	var row := floori(pointer_position.y / cell_size)

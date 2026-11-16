@@ -67,6 +67,10 @@ city.find('Police Station'); // [{ x, y, name }]
 city.region(40, 40, 20, 20); // arrays of stored values for your own analysis
 city.dataMap('pollution'); city.graph('Residents');
 budget.info(); budget.ordinances(); city.demand;
+city.demographics(); // the Population window: residents, life expectancy and education of each age group
+city.industry(); // the Industry window: [{ key, name, ratio, taxRate, demand }]
+city.neighbors(); // the Neighbors window: the neighbor cities and the national population
+budget.report(); // the Budget window: the amount of each line, the totals, the bonds
 ```
 
 Character `i` of `rows[j]` is the tile `(x + i, y + j)`. Tile coordinates go from 0 to
@@ -114,6 +118,7 @@ the cheat `sim.endDisaster()`. The yearly budget window opens each January:
 
 ```js
 budget.set({ taxes: { residential: 8 }, funding: { police: 90 } });
+budget.set({ industryTaxes: { all: 3, textiles: 7 } }); // the tax rate of each industry, 0 to 20
 budget.setOrdinance('proReading', true);
 budget.issueBond();
 sim.startDisaster('Fire', 64, 64); sim.noDisasters = true; city.funds = 50000; // cheats
@@ -138,7 +143,17 @@ game.actions(); game.action('window_budget'); // the actions of the keys
 
 - `ui.controls('main')` lists the controls of the game window: the toolbar and the menu bar.
 - When more than one control has the same text, the error lists their ids. Use an id.
-- A control under a modal window cannot be used. Answer the modal window first.
+- A control under a modal window cannot be used. Answer the modal window first. `ui.menu`
+  and `game.action` also throw while a modal window shows.
+- `ui.texts()` also gives the texts that a window draws: the charts and the newspaper.
+
+The newspaper opens by itself (`suspended` is then `'newspaper'`), or from its menu:
+
+```js
+ui.menu('Newspaper', city.newspapers[0]);
+city.newspaper(); // { title, date, price, stories: [{ headline, article }], weather, opinion, extra }
+ui.close();
+```
 
 ## Mouse, keys and images
 
@@ -164,12 +179,38 @@ await city.exportPng('/full/path/city.png'); // the whole city: a large image
 - **The window:** `GET /screenshot` and the MCP `screenshot` tool return the image of
   the window. A headless game has no window image. A position of `input` and each
   `rect` are in pixels of the full-size window image.
+- **A control that draws its content:** `GET /control-image?target=PixelCanvas&scale=4`,
+  the MCP `control_image` tool and `ui.image(target, path, { scale })` return its
+  picture. These work in a headless game. `ui.controls()` marks such a control with
+  `image: true`.
+
+## The SCURK editor
+
+`ui.press('SCURK')` on the main menu opens the tile editor. It has no functions of its
+own: use its buttons and menus with `ui`, and draw with `input`. Its two drawn controls
+give `data` to find a place:
+
+```js
+const find = (name) => ui.controls().find((control) => control.name === name);
+const colors = find('Colors').data; // { columns, selected, indices, colors: ['#rrggbb'], origin, end }
+const canvas = find('PixelCanvas').data; // { spriteWidth, spriteHeight, zoom, tool, colorIndex, editable, origin, end }
+const cell = (colors.end.x - colors.origin.x) / colors.columns;
+input.click(colors.origin.x + (40 % 16 + 0.5) * cell, colors.origin.y + (Math.floor(40 / 16) + 0.5) * cell); // palette cell 40
+const size = (canvas.end.x - canvas.origin.x) / canvas.spriteWidth;
+const at = (x, y) => [canvas.origin.x + (x + 0.5) * size, canvas.origin.y + (y + 0.5) * size];
+await input.drag(at(50, 244), at(78, 244)); // a line on the sprite
+ui.image('PixelCanvas', '/full/path/tile.png', { scale: 4 }); // look at the result
+```
+
+`origin` and `end` are the corners of the cells or of the sprite, in pixels of the window.
 
 ## Other functions
 
-- `game.mainMenu()`, `game.quit({ discard: true })`, `game.settings`, `game.debugMode = true`.
+- `game.mainMenu()`, `game.quit({ discard: true })`, `game.debugMode = true`.
+- `game.preferences` gives the settings in use. Change a setting in the Settings window:
+  `game.action('settings')`, then `ui.choose('Tabs', 'Audio')` and `ui.set`.
 - `game.wait(ms)`, `game.frames(count)`, `await game.until(() => !sim.suspended)`.
 - `game.on(type, listener)` listens to game events; `game.events` lists them.
 - `view.follow = true` moves the view to each tile that `tools.apply` changes.
-- The SCURK editor, the Settings window and the Debug window have no functions of their
-  own. Use the `ui` and `input` functions for them.
+- The Settings window and the Debug window have no functions of their own. Use the `ui`
+  and `input` functions for them.

@@ -135,6 +135,25 @@ func refresh() -> void:
 	queue_redraw()
 
 
+## The texts of the chart for UiProbe: the control draws them, thus it has
+## no labels that a script can read.
+func probe_texts() -> PackedStringArray:
+	var data := snapshot(city)
+	var result := PackedStringArray()
+
+	if not data.ok:
+		return result
+
+	result.append(indicator_text(data, mode))
+
+	for cohort in data.cohorts:
+		if cohort.population > 0:
+			result.append("Age %d: %d residents, LE %d, EQ %d" % [
+				cohort.age_start, cohort.population, cohort.life_expectancy, cohort.education_quotient])
+
+	return result
+
+
 static func snapshot(value_city: CityState) -> Snapshot:
 	if value_city == null or not value_city.is_valid():
 		var failure := Snapshot.new()

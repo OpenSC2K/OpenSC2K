@@ -309,6 +309,26 @@ func all_stories() -> Array[NewspaperStory]:
 	return result
 
 
+## The texts of the page for UiProbe: the page draws them, thus it has no
+## labels that a script can read.
+func probe_texts() -> PackedStringArray:
+	var result := PackedStringArray()
+
+	if content == null:
+		return result
+
+	for text in [content.title_text, content.date_text, content.price_text]:
+		if not text.is_empty():
+			result.append(text)
+
+	for story in all_stories():
+		for text in [story.title_text, story.read_title, story.read_text]:
+			if not text.strip_edges().is_empty() and (result.is_empty() or result[-1] != text):
+				result.append(text)
+
+	return result
+
+
 func _header_content_height() -> float:
 	return maxf(NewspaperStory.paragraph_height(_masthead, _masthead_line),
 		maxf(NewspaperStory.paragraph_height(_price, SMALL_LINE), NewspaperStory.paragraph_height(_date, SMALL_LINE)))

@@ -9,8 +9,10 @@ extends ScriptingApiBase
 # the functions that only console scripts and the remote API can call
 const RESTRICTED: PackedStringArray = [
 	"ui.windows", "ui.controls", "ui.texts", "ui.press", "ui.set", "ui.choose", "ui.menus", "ui.menu", "ui.accept",
-	"ui.close", "ui.chooseFile", "ui.screen", "ui.screenshot",
+	"ui.close", "ui.chooseFile", "ui.screen", "ui.screenshot", "ui.image",
 ]
+# ui.image makes each picture pixel at most this many pixels wide
+const MAX_IMAGE_SCALE := 16
 const SCREENSHOT_FOLDER := "screenshots"
 
 # the newest message window
@@ -34,6 +36,7 @@ func handlers() -> Dictionary[String, Callable]:
 		"ui.chooseFile": _choose_file,
 		"ui.screen": _screen,
 		"ui.screenshot": _screenshot,
+		"ui.image": _image,
 	}
 
 
@@ -81,6 +84,19 @@ func _panels() -> Array[Control]:
 				result.append(node)
 
 	return result
+
+
+## The title of the top modal window, or an empty text. The menu bar and
+## the keys of the game do not work under such a window. A full-screen panel
+## of the game, such as the SCURK editor, has its own keys and does not count.
+func blocking_window() -> String:
+	var windows := UiProbe.visible_windows(app.get_tree().root)
+
+	for index in range(windows.size() - 1, -1, -1):
+		if windows[index].exclusive:
+			return windows[index].title if not windows[index].title.is_empty() else UiProbe.type_name(windows[index])
+
+	return ""
 
 
 func _blocks(node: Node) -> bool:
@@ -288,6 +304,11 @@ func _menu(arguments: Array) -> Variant:
 	if buttons.is_empty():
 		return fail("The menu bar does not show now.")
 
+	var blocker := blocking_window()
+
+	if not blocker.is_empty():
+		return fail("The window %s waits for an answer. Answer it first: ui.accept(), ui.close() or ui.press()." % blocker)
+
 	for button in buttons:
 		if UiOperator.plain_text(button.text) == UiOperator.plain_text(str(path[0])):
 			if button.disabled:
@@ -381,6 +402,69 @@ func _screenshot(arguments: Array) -> Variant:
 		app.scripting.settle(context, token, {"path": path, "width": image.get_width(), "height": image.get_height()}, error))
 
 	return null
+
+
+## The picture of a control that draws its content, made without the screen:
+## { png, width, height, error }. `target` names the control; without it, the
+## first such control of the top window is used. `scale` makes each pixel larger.
+func control_png(target: Variant, scale: int) -> Dictionary:
+	var control: Control = null
+
+	if target == null or str(target).is_empty():
+		for data in UiProbe.controls(_window(null)):
+			if data.has("image"):
+				control = app.get_tree().root.get_node(NodePath(data.id))
+
+				break
+
+		if control == null:
+			return {"error": "The top window has no control with a picture. ui.controls() marks such a control with image: true."}
+	else:
+		control = _control(target)
+
+		if control == null:
+			return {"error": take_failure()}
+
+	if not control.has_method("probe_image"):
+		return {"error": "The control %s has no picture. ui.controls() marks a control that has one with image: true." % control.name}
+
+	var image: Image = control.call("probe_image")
+
+	if image == null or image.is_empty():
+		return {"error": "The control %s shows no picture now." % control.name}
+
+	var factor := clampi(scale, 1, MAX_IMAGE_SCALE)
+
+	if factor > 1:
+		image = image.duplicate()
+		image.resize(image.get_width() * factor, image.get_height() * factor, Image.INTERPOLATE_NEAREST)
+
+	return {"png": image.save_png_to_buffer(), "width": image.get_width(), "height": image.get_height(), "error": ""}
+
+
+# image(target, path, scale): saves the picture of a control to a PNG file: { path, width, height }
+func _image(arguments: Array) -> Variant:
+	var path := str(argument(arguments, 1, ""))
+	var scale: Variant = argument(arguments, 2, 1)
+
+	if not path.is_absolute_path():
+		return fail("The path must be a full path.")
+
+	var picture := control_png(argument(arguments, 0), int(scale) if is_number(scale) else 1)
+
+	if not str(picture.error).is_empty():
+		return fail(picture.error)
+
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+	var file := FileAccess.open(path, FileAccess.WRITE)
+
+	if file == null:
+		return fail("Cannot write %s: %s." % [path, error_string(FileAccess.get_open_error())])
+
+	file.store_buffer(picture.png)
+	file.close()
+
+	return {"path": path, "width": picture.width, "height": picture.height}
 
 
 # a message window with an OK button. The game continues while it shows

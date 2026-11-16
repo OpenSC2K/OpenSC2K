@@ -392,7 +392,8 @@ func _refresh_bond_table() -> void:
 	if city == null:
 		return
 	_setup_table(bond_table, ["Bond", "Principal", "Interest rate", "Annual interest"])
-	var count := mini(city.document.misc_u32(Bonds.MISC_BONDS), Bonds.MAX_BONDS)
+	var terms := BudgetReport.bond_terms(city)
+	var count := terms.count
 	for index in count:
 		var rate := city.document.misc_u32(Bonds.MISC_BOND_RATES + index * 4) & 0xffff
 		var row := bond_table.create_item(bond_table.get_root())
@@ -402,10 +403,9 @@ func _refresh_bond_table() -> void:
 		row.set_text(3, BudgetReport.currency(-rate * 100))
 		if rate > 0:
 			row.set_custom_color(3, _loss_color())
-	var federal := BudgetAdvice._signed_word(city.document.misc_u32(Bonds.MISC_FEDERAL_RATE))
-	var value := CityValuePhase.calculate(city)
-	var city_value := value.city_value if value.ok else city.document.misc_u32(Bonds.MISC_CITY_VALUE)
-	var credit := clampi(BudgetAdvice._signed_word(((count * 25000) & 0xffffffff) / maxi((city_value + 1) & 0xffffffff, 1)), 0, 6)
+	var federal := terms.federal
+	var city_value := terms.city_value
+	var credit := terms.credit
 	bond_summary_label.text = tr("Outstanding: %s   ·   Credit: %s   ·   Bank rate: %d%%   ·   Next bond: %d%%   ·   City value: %s") % [
 		BudgetReport.currency(count * Bonds.BOND_VALUE),
 		["AAA", "AA", "A", "B", "C", "D", "F"][credit],

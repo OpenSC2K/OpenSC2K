@@ -61,6 +61,18 @@ const TOOLS := [
 		},
 	},
 	{
+		"name": "control_image",
+		"description": ("Return a PNG picture of a control that draws its content, such as the pixel canvas of the SCURK "
+			+ "editor. A headless game can do this. The eval of ui.controls() marks such a control with image: true."),
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"target": {"type": "string", "description": "The id or the name of the control. The default is the first such control of the top window."},
+				"scale": {"type": "integer", "description": "From 1 to 16: each picture pixel becomes this many pixels wide. The default is 1."},
+			},
+		},
+	},
+	{
 		"name": "guide",
 		"description": "Return how to play the game through this API. With types true, also the TypeScript declarations of every function.",
 		"inputSchema": {
@@ -148,6 +160,10 @@ static func _call_tool(request: RemoteHttpRequest, id: Variant, parameters: Dict
 		"city_image":
 			api.capture_city(ApplicationRemoteApi.city_image_options(arguments),
 				func(png: PackedByteArray, error: String) -> void: request.respond_json(200, _result(id, _image_content(png, error))))
+		"control_image":
+			var factor: Variant = arguments.get("scale", 1)
+			var picture := api.control_image(arguments.get("target", ""), int(factor) if typeof(factor) in [TYPE_INT, TYPE_FLOAT] else 1)
+			request.respond_json(200, _result(id, _image_content(picture.get("png", PackedByteArray()), str(picture.error))))
 		"guide":
 			var text := api.guide_text()
 

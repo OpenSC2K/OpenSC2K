@@ -39,6 +39,7 @@ tools/remote_game.py eval - < script.js    # a script from standard input
 tools/remote_game.py state
 tools/remote_game.py screenshot screen.png --scale 0.5
 tools/remote_game.py city-image part.png --area 40 40 12 12 --size large
+tools/remote_game.py control-image tile.png --scale 4   # the canvas of the SCURK editor
 tools/remote_game.py guide
 tools/remote_game.py stop
 ```
@@ -60,6 +61,7 @@ The server listens on `127.0.0.1` only.
 | `GET /state` | The value of `game.state()`. |
 | `GET /screenshot` | A PNG image of the game window. `?scale=0.5` makes it smaller. A headless game answers 503. |
 | `GET /city-image` | A PNG image of the city, also from a headless game. `?x=40&y=40&width=12&height=12` gives only those tiles. `size` is `small`, `medium` or `large`; `view` is `city` or `underground`. |
+| `GET /control-image` | A PNG picture of a control that draws its content, such as the canvas of the SCURK editor, also from a headless game. `target` is the id or the name of the control; without it, the first such control of the top window. `scale` makes each pixel larger, from 1 to 16. |
 | `GET /guide` | The guide for an agent. |
 | `GET /types` | The TypeScript declarations of the API. |
 | `POST /mcp` | The Model Context Protocol. |
@@ -106,6 +108,7 @@ tools:
 | `state` | Returns `game.state()`. |
 | `screenshot` | Returns a PNG image of the game window: `{ scale }`. |
 | `city_image` | Returns a PNG image of the city, or of some tiles: `{ x, y, width, height, size, view }`. |
+| `control_image` | Returns a PNG picture of a control that draws its content: `{ target, scale }`. |
 | `guide` | Returns the guide. `{ types: true }` adds the TypeScript declarations. |
 
 Start the game, then add the server to the client. For Claude Code:
@@ -122,14 +125,15 @@ The game must run before the client connects.
 | Need | Functions |
 | --- | --- |
 | Know what the game shows | `game.state()`, `ui.windows()`, `ui.controls()`, `ui.texts()` |
+| Read the report windows | `city.demographics`, `city.industry`, `city.neighbors`, `city.newspaper`, `budget.report`, `city.graph`, `city.dataMap` |
 | Start, open and save cities | `game.newCity`, `game.open`, `game.saveAs`, `city.save`, `game.files` |
 | Read the map without an image | `city.textMap`, `city.tile`, `city.query`, `city.region`, `city.find`, `city.census` |
 | Build | `tools.select`, `tools.apply`, `tools.undo` |
 | Run the simulation | `sim.advance`, `sim.runTo`, `sim.speed`, `sim.suspended` |
-| Budget and disasters | `budget.*`, `sim.startDisaster` |
+| Budget, industry taxes and disasters | `budget.*`, `sim.startDisaster` |
 | Answer windows and use menus | `ui.accept`, `ui.close`, `ui.press`, `ui.set`, `ui.choose`, `ui.menu`, `ui.chooseFile`, `game.action` |
 | All other actions | `input.click`, `input.drag`, `input.key`, `input.text`, `input.scroll`, with `view.screenOf` |
-| Images | `GET /city-image` and `city.exportPng` with an area of tiles, `ui.screenshot`, `GET /screenshot` |
+| Images | `GET /city-image` and `city.exportPng` with an area of tiles, `GET /control-image` and `ui.image`, `ui.screenshot`, `GET /screenshot` |
 
 [Scripting](scripting.md) describes each function. The `ui` functions use each
 control as the player does: they change the control and send its signals. Thus the
@@ -137,6 +141,22 @@ game runs the same code as after a click. The `input` functions send mouse and k
 events through the input of the engine. Each window of the game is reachable in
 this way, also the Settings window, the Debug window and the SCURK editor, which
 have no functions of their own.
+
+Some controls draw their content: the charts of the Population, Industry and
+Neighbors windows, the newspaper, and the canvas and the palette of the SCURK
+editor. Such a control has no labels to read. It tells its content to `UiProbe`
+with three optional functions:
+
+| Function of the control | Scripts get it as |
+| --- | --- |
+| `probe_texts() -> PackedStringArray` | Lines of `ui.texts()`. |
+| `probe_data() -> Dictionary` | `data` of the control in `ui.controls()`. A `Vector2` is a place in the control; scripts get it in pixels of the game window. |
+| `probe_image() -> Image` | The picture of `ui.image` and `GET /control-image`. The control makes it without the screen. |
+
+Add these functions to a new control that draws text, takes a click on a drawn
+part, or shows a picture that a script must see. `ui.menu` and `game.action` do
+nothing while a modal window shows, as the menu bar and the keys of a player;
+they throw an error that names the window.
 
 A simulation prompt stops `sim.advance` and `sim.runTo`. Their answer has the
 reason in `stopped`, and `game.state().windows` has the window:
@@ -153,6 +173,7 @@ ui.accept(); // approves the yearly budget
 | A person can watch | No | Yes |
 | `GET /screenshot`, `ui.screenshot` | No image | Yes |
 | `GET /city-image`, `city.exportPng`, `city.textMap` | Yes | Yes |
+| `GET /control-image`, `ui.image` | Yes | Yes |
 | `ui` and `input` functions | Yes | Yes |
 | GPU renderer | No | Yes |
 
@@ -193,6 +214,7 @@ computer can; `sim.speed` and `sim.runTo` run in real time, as for a player.
 | `game/src/application/automation/ui_probe.gd`, `ui_operator.gd`, `input_sender.gd` | Read the interface, use its controls, send input events. |
 | `game/src/application/automation/city_text_map.gd` | The city as text. |
 | `game/src/application/scripting_game_api.gd`, `scripting_ui_api.gd`, `scripting_input_api.gd` | The host functions of `game`, `ui` and `input`. |
+| `game/src/application/scripting_reports_api.gd` | The host functions that give the values of the report windows and the newspaper. |
 | `native/core/scripting` | `Engine::eval_request` runs a request and sends its value as JSON to the host: `request(id, ok, json)`. |
 | `tools/remote_game.py` | The shell client. |
 

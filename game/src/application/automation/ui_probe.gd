@@ -5,6 +5,13 @@ extends RefCounted
 ## stays the same while the node lives. The first window is "main": the game
 ## window itself, with every control that is not in another window. A
 ## position is in pixels of the game window, as an image of the window shows it.
+##
+## A control that draws its content has no labels to read. It can tell its
+## content with these optional functions:
+## - probe_texts() -> PackedStringArray: the texts that it draws.
+## - probe_data() -> Dictionary: values for scripts. A Vector2 is a place in
+##   the control; scripts get it in pixels of the game window.
+## - probe_image() -> Image: its picture, made without the screen.
 
 const MAIN_ID := "main"
 # the controls that take input, and the kind that scripts see
@@ -218,7 +225,31 @@ static func control_data(control: Control, kind: String) -> Dictionary:
 		KIND_TREE:
 			data["items"] = tree_rows(control as Tree)
 
+	if control.has_method("probe_data"):
+		data["data"] = probe_data(control)
+
+	if control.has_method("probe_image"):
+		data["image"] = true
+
 	return data
+
+
+## The values that a control gives to scripts, with each place in pixels of the game window.
+static func probe_data(control: Control) -> Dictionary:
+	var values: Dictionary = control.call("probe_data")
+	var transform := window_transform(control)
+	var result := {}
+
+	for key: Variant in values:
+		var value: Variant = values[key]
+
+		if value is Vector2:
+			var place: Vector2 = transform * (value as Vector2)
+			value = {"x": snappedf(place.x, 0.01), "y": snappedf(place.y, 0.01)}
+
+		result[key] = value
+
+	return result
 
 
 ## The rows of a tree, top to bottom: [{ index, depth, text, cells, selected }].
@@ -304,6 +335,10 @@ static func _collect_texts(node: Node, result: PackedStringArray) -> void:
 
 		if not text.strip_edges().is_empty():
 			result.append(text.left(MAX_LABEL_LENGTH))
+
+		if child.has_method("probe_texts"):
+			for line: String in child.call("probe_texts"):
+				result.append(line.left(MAX_LABEL_LENGTH))
 
 		if not (child is LineEdit or child is TextEdit or child is RichTextLabel or child is OptionButton):
 			_collect_texts(child, result)

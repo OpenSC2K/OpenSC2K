@@ -152,6 +152,60 @@ interface Census {
   unpowered: number;
 }
 
+/** The values of the Population window. An age group covers five years. */
+interface Demographics {
+  population: number;
+  /** The percentage of the residents who are of working age. */
+  workforcePercent: number;
+  workforceLifeExpectancy: number;
+  /** The education quotient of the work force. */
+  workforceEducation: number;
+  ages: { age: number; population: number; lifeExpectancy: number; education: number }[];
+}
+
+type IndustryKey = 'steelMining' | 'textiles' | 'petrochemical' | 'food' | 'construction' | 'automotive'
+  | 'aerospace' | 'finance' | 'media' | 'electronics' | 'tourism';
+
+/** One row of the Industry window. */
+interface Industry {
+  key: IndustryKey;
+  name: string;
+  /** The size of the industry in the city, as the Ratios chart shows it. */
+  ratio: number;
+  /** The tax rate of the industry in percent. `budget.set({ industryTaxes })` changes it. */
+  taxRate: number;
+  /** The national demand for the industry. */
+  demand: number;
+}
+
+/** The values of the Neighbors window. */
+interface Neighbors {
+  name: string;
+  /** The population of the city with its arcologies. */
+  population: number;
+  nationalPopulation: number;
+  /** `edge` is the side of the map of the neighbor. The name `Ocean` has no city. */
+  neighbors: { name: string; population: number; edge: 'x-max' | 'y-max' | 'x-min' | 'y-min' }[];
+}
+
+interface NewspaperReport {
+  heading: string;
+  headline: string;
+  article: string;
+}
+
+/** The newspaper that shows. */
+interface Newspaper {
+  title: string;
+  date: string;
+  price: string;
+  /** The first story is the lead story. */
+  stories: { headline: string; article: string }[];
+  weather: NewspaperReport;
+  opinion: NewspaperReport;
+  extra: { headline: string; article: string }[];
+}
+
 interface PngExportOptions {
   /** The image shows only these tiles, and the game draws only them. Without it: the whole city. */
   area?: TileArea;
@@ -224,6 +278,8 @@ interface Funding {
 interface BudgetInfo {
   taxes: Taxes;
   funding: Funding;
+  /** The tax rate of each industry, from 0 to 20. */
+  industryTaxes: Record<IndustryKey, number>;
   autoBudget: boolean;
   bonds: number;
 }
@@ -231,7 +287,51 @@ interface BudgetInfo {
 interface BudgetChanges {
   taxes?: Partial<Taxes>;
   funding?: Partial<Funding>;
+  /** The key `all` sets each industry. A key can also be a name of the Industry window. */
+  industryTaxes?: Partial<Record<IndustryKey | 'all', number>>;
   autoBudget?: boolean;
+}
+
+/** One line of the Budget window. An amount is positive for income and negative for a cost. */
+interface BudgetLine {
+  key: keyof Taxes | keyof Funding | 'ordinances' | 'bonds';
+  name: string;
+  /** The row of the Budget window that holds the line, such as `Roads & transit`. */
+  group: string;
+  /** The tax rate or the funding in percent. */
+  rate: number;
+  yearToDate: number;
+  /** The estimate for the full year. */
+  estimate: number;
+  /** The amount of each month, January first. Months after `recordedMonths` are estimates. */
+  months: number[];
+}
+
+/** The amounts of the Budget window for the stored rates. */
+interface BudgetReportInfo {
+  year: number;
+  /** True while the yearly budget waits for its settlement. */
+  yearEnd: boolean;
+  recordedMonths: number;
+  funds: number;
+  /** The cash flow of the year until now. */
+  yearToDate: number;
+  /** The cash flow of the full year. */
+  estimate: number;
+  yearEndFunds: number;
+  lines: BudgetLine[];
+  bonds: {
+    count: number;
+    outstanding: number;
+    /** The interest rate of each bond in percent, the oldest first. */
+    rates: number[];
+    /** From `AAA` to `F`. */
+    credit: string;
+    bankRate: number;
+    /** The interest rate of the next bond. */
+    nextRate: number;
+    cityValue: number;
+  };
 }
 
 interface Ordinance {
@@ -342,6 +442,14 @@ interface UiControl {
   step?: number;
   items?: UiItem[];
   rect: ScreenRect;
+  /** True when `ui.image` can save the picture of the control. */
+  image?: true;
+  /**
+   * Values of a control that draws its content. The canvas of the SCURK editor gives
+   * `{ spriteWidth, spriteHeight, zoom, tool, colorIndex, brushSize, origin, end }`: `origin` is the
+   * corner of sprite pixel (0, 0) and `end` the far corner of the last one, in pixels of the game window.
+   */
+  data?: Record<string, unknown>;
 }
 
 /** A control by its id, its text or its node name; or by a text in one window. */
@@ -480,8 +588,8 @@ interface GameEventMap {
   'disaster.beforeStart': { id: number; name: string; x: number; y: number };
   'disaster.started': Disaster;
   'disaster.ended': Disaster;
-  news: { type: number; argument: number };
-  notice: { id: number };
+  news: { type: number; argument: number; name: string };
+  notice: { id: number; text: string };
   'budget.prompt': {};
   'military.proposal': {};
   'game.over': { type: string; funds: number };
@@ -558,6 +666,8 @@ interface Game {
   quit(options?: { discard?: boolean }): true;
   /** The stored settings: `{ section: { key: value } }`. Console scripts only. */
   readonly settings: Record<string, Record<string, unknown>>;
+  /** The settings that the game uses now, also those that the file does not hold. The Settings window changes them. Console scripts only. */
+  readonly preferences: Record<string, unknown>;
   /** Get or set the debug mode: the Debug menu and the debug tools. Console scripts only. */
   debugMode: boolean;
   /** Resolves after a time in milliseconds. */
@@ -623,15 +733,28 @@ interface City {
   find(what: string | number, area?: TileArea): FoundTile[];
   /** The number of tiles of each structure and zone in an area, or in the whole map. */
   census(area?: TileArea): Census;
+  /** The values of the Population window. */
+  demographics(): Demographics;
+  /** The values of the Industry window. */
+  industry(): Industry[];
+  /** The values of the Neighbors window. */
+  neighbors(): Neighbors;
+  /** The names of the papers of the Newspaper menu. */
+  readonly newspapers: string[];
+  /** The newspaper that shows, or null. `ui.menu('Newspaper', city.newspapers[0])` opens a paper. */
+  newspaper(): Newspaper | null;
   /** Writes an image of the city, or of the tiles of `options.area`, to a PNG file. Resolves when the export ends. Console scripts only. */
   exportPng(path: string, options?: PngExportOptions): Promise<ImageFile>;
 }
 
 interface Budget {
   info(): BudgetInfo;
+  /** The amounts of the Budget window: each line, the totals and the bonds. */
+  report(): BudgetReportInfo;
   readonly taxes: Taxes;
   readonly funding: Funding;
-  /** Changes the named values. Tax rates go from 0 to 22, funding from 0 to 100. */
+  readonly industryTaxes: Record<IndustryKey, number>;
+  /** Changes the named values. Tax rates go from 0 to 22, funding from 0 to 100, industry tax rates from 0 to 20. */
   set(changes: BudgetChanges): BudgetInfo;
   ordinances(): Ordinance[];
   /** Enables or disables an ordinance by its key or its name. Returns the new state. */
@@ -755,6 +878,12 @@ interface Ui {
   readonly screen: { width: number; height: number; headless: boolean };
   /** Saves an image of the game window as a PNG file. Without a path: in the screenshots folder of the user data. */
   screenshot(path?: string, options?: { scale?: number }): Promise<ImageFile>;
+  /**
+   * Saves the picture of a control that draws its content, such as the canvas of the SCURK editor.
+   * A headless game can do this. Without a target: the first such control of the top window.
+   * `scale` makes each pixel larger, from 1 to 16.
+   */
+  image(target: UiTarget | undefined, path: string, options?: { scale?: number }): ImageFile;
 }
 
 type MouseButtonName = 'left' | 'right' | 'middle' | 'back' | 'forward';

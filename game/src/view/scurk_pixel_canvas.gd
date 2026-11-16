@@ -96,6 +96,8 @@ var show_terrain := true
 var outline_state: Array = []
 var outline_edges := PackedVector2Array()
 var display_texture: ImageTexture
+# the picture of display_texture. the headless renderer does not keep an updated texture
+var display_image: Image
 var display_state: Array = []
 var selection := ScurkSelection.new()
 var paint_options := ScurkPaintOptions.new()
@@ -353,6 +355,30 @@ func display_pixel() -> float:
 # the sprite origin in local space, on a screen pixel corner
 func display_origin() -> Vector2:
 	return ScreenPixels.snap(self, Vector2(DISPLAY_MARGIN, 0))
+
+
+## The picture of the canvas for UiProbe: one pixel for each sprite pixel,
+## as the canvas shows it without the grid. Null without a sprite.
+func probe_image() -> Image:
+	if sprite_width <= 0 or sprite_height <= 0:
+		return null
+
+	_update_display_texture()
+
+	return display_image
+
+
+## The values that a script needs to draw on the canvas, for UiProbe.
+## `origin` is the corner of sprite pixel (0, 0) and `end` the far corner
+## of the last sprite pixel, in the control. UiProbe changes them to window pixels.
+func probe_data() -> Dictionary:
+	var origin := display_origin()
+
+	return {
+		"spriteWidth": sprite_width, "spriteHeight": sprite_height, "zoom": zoom, "tool": tool,
+		"colorIndex": selected_color_index, "brushSize": brush_size, "editable": not editing_disabled,
+		"origin": origin, "end": origin + Vector2(sprite_width, sprite_height) * display_pixel(),
+	}
 
 
 func _on_screen_pixels_changed() -> void:
@@ -1629,6 +1655,7 @@ func _update_display_texture() -> void:
 		display_texture = ImageTexture.create_from_image(image)
 	else:
 		display_texture.update(image)
+	display_image = image
 	display_state = state
 
 

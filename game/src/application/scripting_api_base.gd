@@ -22,6 +22,14 @@ func fail(message: String) -> Variant:
 	return null
 
 
+## The message of the failed call, or an empty text. Clears it.
+func take_failure() -> String:
+	var message: String = call_state.failure
+	call_state.failure = ""
+
+	return message
+
+
 ## True with a loaded city. Without one, the call fails.
 func need_city() -> bool:
 	if app.document_state.city == null or app.simulation_state.simulation_engine == null:

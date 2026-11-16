@@ -211,7 +211,7 @@ console.log(text); // { outer: [Object] }
 | `game.events` | The event types and their descriptions. |
 | `game.state()` | What the game shows now: `{ screen, assetsReady, busy, status, city, speed, suspended, tool, view, disaster, windows }`. `screen` is `startup`, `main-menu`, `new-city`, `terrain-editor`, `city` or `scurk`. `status` is the text of the status bar: the result or the error of the last action. |
 | `game.actions()` | The actions of the keys and the menus: `[{ id, label, category, scope, kind }]`. |
-| `game.action(id)` | Runs an action as its key does, for example `game.action('window_budget')`. False when the action does nothing now. |
+| `game.action(id)` | Runs an action as its key does, for example `game.action('window_budget')`. False when the action does nothing now. It throws while a modal window shows. |
 | `game.wait(ms)`, `game.frames(count)` | Promises that resolve after a time, or after the game drew frames. |
 | `game.until(test, timeout)` | A promise that resolves when `test()` is true. It rejects after the timeout; the default is 30000 ms. |
 | `game.newCity(options)` *(console)* | Makes the terrain and founds a city, as the New City window does. Returns `game.state()`. See below. |
@@ -221,6 +221,7 @@ console.log(text); // { outer: [Object] }
 | `game.mainMenu(show)` *(console)* | Shows the main menu, or with `false` returns to the city. |
 | `game.quit({ discard })` *(console)* | Closes the game. |
 | `game.settings` *(console)* | The stored settings: `{ section: { key: value } }`. Change a setting in the Settings window, with the `ui` functions. |
+| `game.preferences` *(console)* | The settings that the game uses now, also those that the file does not hold: `{ defaultMayorName, musicVolume, uiTheme, ... }`. |
 | `game.debugMode` *(console)* | Get or set the debug mode. |
 
 `game.newCity` takes `{ name, mayor, difficulty, year, size, sc2, ocean, river, hills,
@@ -314,6 +315,11 @@ for (const key of game.storage.keys()) {
 | `city.region(x, y, width, height)` | The stored values of an area, one array for each map: `{ x, y, width, height, building, zone, terrain, underground, altitude, water, powered, watered }`. |
 | `city.find(what, area)` | The tiles of a structure, by a part of its name or by its stored id: `[{ x, y, building, name }]`. 2000 tiles at most. |
 | `city.census(area)` | The number of tiles of each structure and zone: `{ tiles, structures, zones, water, powered, unpowered }`. |
+| `city.demographics()` | The values of the Population window: `{ population, workforcePercent, workforceLifeExpectancy, workforceEducation, ages }`. `ages` has one entry for each five years: `{ age, population, lifeExpectancy, education }`. |
+| `city.industry()` | The values of the Industry window: `[{ key, name, ratio, taxRate, demand }]`. `budget.set({ industryTaxes })` changes a tax rate. |
+| `city.neighbors()` | The values of the Neighbors window: `{ name, population, nationalPopulation, neighbors }`. A neighbor is `{ name, population, edge }`; `edge` is its side of the map: `x-max`, `y-max`, `x-min` or `y-min`. |
+| `city.newspapers` | The names of the papers of the Newspaper menu. |
+| `city.newspaper()` | The newspaper that shows: `{ title, date, price, stories: [{ headline, article }], weather, opinion, extra }`, or null. `ui.menu('Newspaper', city.newspapers[0])` opens a paper. |
 | `city.exportPng(path, options)` *(console)* | Writes an image of the city to a PNG file, as File > Export City as PNG does. A promise of `{ path, width, height, origin }`. Options: `area` (`{ x, y, width, height }` in tiles: the image shows only those tiles, and only they are drawn), `size` (`'small'`, `'medium'`, `'large'`), `view` (`'city'`, `'underground'`), `signs`, `movingThings`, `transparent`. `origin` is the place of the image in the picture of the whole city. |
 
 A point can be `(x, y)`, `({ x, y })` or `([x, y])`. Tile coordinates go from 0
@@ -429,10 +435,11 @@ if (city.info().path) {
 
 | Member | Use |
 | --- | --- |
-| `budget.info()` | `{ taxes, funding, autoBudget, bonds }`. |
+| `budget.info()` | `{ taxes, funding, industryTaxes, autoBudget, bonds }`. |
+| `budget.report()` | The amounts of the Budget window for the stored rates: `{ year, yearEnd, recordedMonths, funds, yearToDate, estimate, yearEndFunds, lines, bonds }`. A line is `{ key, name, group, rate, yearToDate, estimate, months }`. An amount is positive for income and negative for a cost. `bonds` is `{ count, outstanding, rates, credit, bankRate, nextRate, cityValue }`. |
 | `budget.taxes` | `{ residential, commercial, industrial }`, tax rates in percent. |
 | `budget.funding` | `{ police, fire, health, school, college, road, highway, bridge, rail, subway, tunnel }`, in percent. |
-| `budget.set(changes)` | Changes the named values: `{ taxes, funding, autoBudget }`. Tax rates go from 0 to 22, funding from 0 to 100. Returns `budget.info()`. |
+| `budget.set(changes)` | Changes the named values: `{ taxes, funding, industryTaxes, autoBudget }`. Tax rates go from 0 to 22, funding from 0 to 100, industry tax rates from 0 to 20. An industry is a key of `city.industry()` or `all`: `{ industryTaxes: { all: 3, textiles: 7 } }`. Returns `budget.info()`. |
 | `budget.ordinances()` | Each ordinance: `{ key, name, category, enabled, cost }`. `cost` is the yearly amount; a tax ordinance has income. |
 | `budget.setOrdinance(key, enabled)` | Enables or disables an ordinance by its key or its name. Returns the new state. |
 | `budget.issueBond()` | Issues a $10,000 bond, as the Budget window does after confirmation. Returns `{ bonds, rate, funds }`. It throws when the council refuses the bond. |
@@ -642,16 +649,17 @@ and the [remote API](remote-api.md) can use them.
 | Member | Use |
 | --- | --- |
 | `ui.windows()` | The windows that show, the lowest first: `[{ id, type, title, text, modal, blocking, focused, rect, buttons, items }]`. The first is the game window, with the id `main`. The last takes the input. A full-screen panel of the game, such as the main menu or the query result, is a window too. `blocking` tells that the simulation waits while the window shows. |
-| `ui.controls(window)` | The controls of a window that take input: `[{ id, kind, type, name, text, value, disabled, rect, items, ... }]`. Without a window: the top one. `kind` is `button`, `check`, `option`, `menu`, `text`, `number`, `tabs`, `list`, `tree` or `custom`. |
-| `ui.texts(window)` | The texts that a window shows, top to bottom. |
+| `ui.controls(window)` | The controls of a window that take input: `[{ id, kind, type, name, text, value, disabled, rect, items, ... }]`. Without a window: the top one. `kind` is `button`, `check`, `option`, `menu`, `text`, `number`, `tabs`, `list`, `tree` or `custom`. A control that draws its content can have `data`, its values for scripts, and `image: true` when `ui.image` can save its picture. |
+| `ui.texts(window)` | The texts that a window shows, top to bottom, also the texts that a chart or the newspaper draws. |
 | `ui.press(target)` | Presses a button. A check box changes its state. |
 | `ui.set(target, value, { submit })` | Sets a text field, a number or a check box. `submit` also sends Enter in a text field. |
 | `ui.choose(target, item, { activate })` | Chooses an item by its text or its index: an option, a tab, a row of a list or a tree, an item of a menu button. With the id of a popup menu that shows, it chooses an item of that menu. `activate` also sends the double click of a list or a tree. |
-| `ui.menus()`, `ui.menu(...path)` | The menus of the menu bar with their items, and a choice of an item: `ui.menu('File', 'Save City')`. |
+| `ui.menus()`, `ui.menu(...path)` | The menus of the menu bar with their items, and a choice of an item: `ui.menu('File', 'Save City')`. `ui.menu` throws while a modal window shows. |
 | `ui.accept(window)`, `ui.close(window)` | The OK button of a dialog, and the close button of a window. A dialog takes a close as Cancel. Without a window: the top one. |
 | `ui.chooseFile(path)` | Selects a full path in the file dialog that shows. |
 | `ui.screen` | The size of the game window in pixels: `{ width, height, headless }`. |
 | `ui.screenshot(path, { scale })` | Saves an image of the game window as a PNG file. A promise of `{ path, width, height }`. Without a path: in the `screenshots` folder of the user data. A headless game has no image. |
+| `ui.image(target, path, { scale })` | Saves the picture of a control that draws its content, such as the canvas of the SCURK editor: `{ path, width, height }`. `ui.controls()` marks such a control with `image: true`. Without a target: the first such control of the top window. `scale` makes each pixel larger, from 1 to 16. A headless game can do this. |
 
 A window is named by its `id`, its title or its `type`. A `target` is the `id` of a
 control, its text, or its node name. The search starts in the top window and stops at
@@ -727,8 +735,8 @@ nothing. `game.events` lists the types.
 | `sim.speed` | `speed` | The speed changed: by the player, a script, a pause on the `runUntil` date, or a disaster that slows African Swallow to Cheetah. |
 | `disaster.beforeStart` | `id`, `name`, `x`, `y` | A menu or a script starts a disaster. Cancelable. The simulation starts other disasters itself. |
 | `disaster.started`, `disaster.ended` | `id`, `name` | The active disaster changed. |
-| `news` | `type`, `argument` | The simulation sent a news story. |
-| `notice` | `id` | The simulation shows a notice. |
+| `news` | `type`, `argument`, `name` | The simulation sent a news story. `name` is the subject of the story. |
+| `notice` | `id`, `text` | The simulation shows a notice. |
 | `budget.prompt` | | The yearly budget opens. |
 | `military.proposal` | | The military asks for a base. |
 | `game.over` | `type`, `funds` | The game ended, or the scenario was won. |

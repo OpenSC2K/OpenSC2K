@@ -275,6 +275,15 @@ func capture_city(options: Dictionary, done: Callable) -> void:
 
 ## The options of city.exportPng from the values of a query or of a tool
 ## call: x, y, width and height make the area.
+## The picture of a control that draws its content, such as the canvas of
+## the SCURK editor: { png, error }. A headless game can do this. See ScriptingUiApi.control_png.
+func control_image(target: Variant, scale: int) -> Dictionary:
+	if app.scripting == null or app.scripting.api == null:
+		return {"error": "The game did not start yet."}
+
+	return app.scripting.api.ui_api.control_png(target, scale)
+
+
 static func city_image_options(values: Dictionary) -> Dictionary:
 	var options := {}
 	var area := {}
@@ -322,6 +331,13 @@ func _handle(request: RemoteHttpRequest) -> void:
 					request.respond(200, "image/png", png)
 				else:
 					request.respond_error(400, error))
+		"/control-image":
+			var picture := control_image(request.query.get("target", ""), str(request.query.get("scale", "1")).to_int())
+
+			if str(picture.error).is_empty():
+				request.respond(200, "image/png", picture.png)
+			else:
+				request.respond_error(400, picture.error)
 		"/guide":
 			request.respond_text(200, guide_text(), "text/markdown; charset=utf-8")
 		"/types":
@@ -343,6 +359,8 @@ func _respond_index(request: RemoteHttpRequest) -> void:
 			"GET /screenshot": "A PNG image of the game window. ?scale=0.5 makes it smaller.",
 			"GET /city-image": "A PNG image of the city, also from a headless game. ?x=40&y=40&width=12&height=12 gives "
 				+ "only those tiles. ?size=small, medium or large is the size of the tiles.",
+			"GET /control-image": "A PNG picture of a control that draws its content, such as the canvas of the SCURK "
+				+ "editor, also from a headless game. ?target= names the control, ?scale=8 makes each pixel larger.",
 			"GET /guide": "How to play the game through this API.",
 			"GET /types": "The TypeScript declarations of the game API.",
 			"POST /mcp": "The Model Context Protocol, for MCP clients.",

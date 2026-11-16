@@ -11,6 +11,8 @@ A program such as an LLM agent plays the game with these commands:
   tools/remote_game.py screenshot out.png    save an image of the game window
   tools/remote_game.py city-image out.png --area 40 40 12 12
                                              save an image of some tiles; a headless game can do this
+  tools/remote_game.py control-image out.png --scale 8
+                                             save the picture of a drawn control, such as the SCURK canvas
   tools/remote_game.py guide                 print how to play through the API
   tools/remote_game.py types                 print the TypeScript declarations of the API
   tools/remote_game.py stop                  close the game
@@ -29,6 +31,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import validate_project
@@ -199,6 +202,10 @@ def city_image(args):
     return save_image(args, '/city-image?' + '&'.join(query))
 
 
+def control_image(args):
+    return save_image(args, '/control-image?' + urllib.parse.urlencode({'target': args.target, 'scale': args.scale}))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--port', type=int, default=int(os.environ.get('OPENSC2K_API_PORT', DEFAULT_PORT)))
@@ -220,6 +227,10 @@ def main():
                         help='Draw only these tiles. The default is the whole city')
     drawer.add_argument('--size', choices=('small', 'medium', 'large'), default='small', help='The size of the tiles')
     drawer.add_argument('--view', default='city', help='city or underground')
+    painter = commands.add_parser('control-image', help='Save the picture of a control that draws its content')
+    painter.add_argument('path')
+    painter.add_argument('--target', default='', help='The id or the name of the control. The default is the first one')
+    painter.add_argument('--scale', type=int, default=1, help='From 1 to 16: the width of each picture pixel')
     commands.add_parser('guide', help='Print how to play through the API')
     commands.add_parser('types', help='Print the TypeScript declarations of the API')
     commands.add_parser('stop', help='Close the game')
@@ -234,6 +245,8 @@ def main():
         return screenshot(args)
     if args.command == 'city-image':
         return city_image(args)
+    if args.command == 'control-image':
+        return control_image(args)
     return show(args.port, '/' + args.command)
 
 

@@ -109,6 +109,26 @@ func refresh() -> void:
 	queue_redraw()
 
 
+## The texts of the picture for UiProbe: the control draws them, thus it has
+## no labels that a script can read.
+func probe_texts() -> PackedStringArray:
+	var data := snapshot(city)
+	var result := PackedStringArray()
+
+	if not data.ok:
+		return result
+
+	result.append("%s: %d" % [data.city_name, data.display_population])
+
+	for index in display_neighbor_indices(data.compass):
+		var neighbor: Neighbor = data.neighbors[index]
+		result.append("%s: %d" % [neighbor_name(neighbor.name_index), neighbor.population])
+
+	result.append(NATIONAL_POPULATION % data.national_population)
+
+	return result
+
+
 static func snapshot(value_city: CityState) -> Snapshot:
 	if value_city == null or not value_city.is_valid():
 		var failure := Snapshot.new()

@@ -178,6 +178,22 @@ func refresh() -> void:
 	queue_redraw()
 
 
+## The texts of the chart for UiProbe: the control draws them, thus it has
+## no labels that a script can read.
+func probe_texts() -> PackedStringArray:
+	var data := snapshot(city)
+	var result := PackedStringArray()
+
+	if not data.ok:
+		return result
+
+	for industry in INDUSTRY_COUNT:
+		result.append("%s: ratio %d, tax rate %d%%, demand %d" % [
+			INDUSTRY_NAMES[industry], data.ratios[industry], data.tax_rates[industry], data.demands[industry]])
+
+	return result
+
+
 static func snapshot(value_city: CityState) -> Snapshot:
 	if value_city == null or not value_city.is_valid():
 		var failure := Snapshot.new()

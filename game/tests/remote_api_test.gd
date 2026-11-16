@@ -34,18 +34,20 @@ func _run() -> void:
 	await _check_scripts()
 	await _check_city_files()
 	await _check_play()
+	await _check_reports()
 	await _check_interface()
 	await _check_mcp()
+	await _check_drawn_controls()
 
 	main.console_window.commands.execute("api off")
 	assert(not main.remote_api.is_running(), "The api command stops the server")
 	main.queue_free()
 	await process_frame
-	print("PASS: remote API routes, scripts, city files, play, interface control and MCP")
+	print("PASS: remote API routes, scripts, city files, play, reports, interface control, MCP and drawn controls")
 	quit()
 
 
-# sends one HTTP request to the game and waits for the answer: { status, type, text }
+# sends one HTTP request to the game and waits for the answer: { status, type, size, body, text }
 func _request(method: HTTPClient.Method, path: String, body := "", headers := PackedStringArray()) -> Dictionary:
 	var client := HTTPClient.new()
 	assert(client.connect_to_host("127.0.0.1", port) == OK)
@@ -74,7 +76,7 @@ func _request(method: HTTPClient.Method, path: String, body := "", headers := Pa
 		if header.to_lower().begins_with("content-type:"):
 			type = header.get_slice(":", 1).strip_edges()
 
-	return {"status": client.get_response_code(), "type": type, "size": bytes.size(),
+	return {"status": client.get_response_code(), "type": type, "size": bytes.size(), "body": bytes,
 		"text": "" if type.begins_with("image/") else bytes.get_string_from_utf8()}
 
 
@@ -167,6 +169,11 @@ func _check_city_files() -> void:
 	var fixture := ProjectSettings.globalize_path(GeneratedCityFixture.path(128))
 	var opened: Dictionary = await _value("game.open(%s).city" % JSON.stringify(fixture))
 	assert(opened.size == 128.0 and main.document_state.city.population() == int(opened.population), "open loads a city file")
+	var people: Dictionary = await _value("city.demographics()")
+	var cohorts := PopulationWindowControl.snapshot(main.document_state.city)
+	assert(people.ages.size() == 20 and people.population == float(cohorts.total_population)
+		and people.ages[4].population == float(cohorts.cohorts[4].population) and people.ages[4].age == 20.0
+		and people.workforcePercent == float(cohorts.workforce_percent), "demographics gives the values of the Population window")
 	assert(not bool((await _eval("game.open('/no/such/city.sc2')")).ok))
 	assert((await _value("game.open(%s, { discard: true }).city.name" % JSON.stringify(path))) == "Savedtown",
 		"The saved city opens again")
@@ -227,6 +234,64 @@ func _check_play() -> void:
 	var until: Dictionary = (
 		await _eval("sim.noDisasters = true; await sim.runTo({ year: city.date.year, month: 3, day: 1 }, 5)", 120000)).value
 	assert(until.date.month == 3.0 and until.stopped == "", "runTo resolves on the date: " + str(until))
+
+
+# the values of the windows that draw their content
+func _check_reports() -> void:
+	var city := main.document_state.city
+	var industries: Array = await _value("city.industry()")
+	var stored := IndustryWindowControl.snapshot(city)
+	assert(industries.size() == 11 and industries[1].key == "textiles" and industries[1].name == "Textiles"
+		and industries[1].demand == float(stored.demands[1]) and industries[1].taxRate == float(stored.tax_rates[1]), str(industries[1]))
+	var taxes: Dictionary = await _value("budget.set({ industryTaxes: { all: 3, textiles: 7, 'Steel/Mining': 1 } }).industryTaxes")
+	stored = IndustryWindowControl.snapshot(city)
+	assert(stored.tax_rates[0] == 1 and stored.tax_rates[1] == 7 and stored.tax_rates[2] == 3 and stored.tax_rates[10] == 3,
+		"budget.set stores the industry tax rates: " + str(stored.tax_rates))
+	assert(taxes.textiles == 7.0 and taxes.tourism == 3.0 and (await _value("budget.industryTaxes.steelMining")) == 1.0)
+	assert(str((await _eval("budget.set({ industryTaxes: { cheese: 3 } })")).error).contains("Unknown industry"))
+	assert(str((await _eval("budget.set({ industryTaxes: { food: 30 } })")).error).contains("from 0 to 20"))
+	assert(IndustryWindowControl.snapshot(city).tax_rates[3] == 3, "A refused change stores nothing")
+
+	var nation: Dictionary = await _value("city.neighbors()")
+	var around := SimNationWindowControl.snapshot(city)
+	var edges: Array = nation.neighbors.map(func(neighbor: Dictionary) -> String: return neighbor.edge)
+	assert(nation.name == "Playtown" and nation.neighbors.size() == 4 and nation.neighbors[2].population == float(around.neighbors[2].population)
+		and nation.neighbors[2].name == SimNationWindowControl.neighbor_name(around.neighbors[2].name_index)
+		and nation.nationalPopulation == around.national_population * 1000.0, str(nation))
+	assert(edges == ["x-max", "y-max", "x-min", "y-min"], "Each neighbor has its side of the map: " + str(edges))
+
+	var report: Dictionary = await _value("budget.issueBond(); budget.set({ taxes: { residential: 9 } }); budget.report()")
+	assert(report.lines.size() == 16 and report.lines[0].key == "residential" and report.lines[0].rate == 9.0
+		and report.lines[15].key == "tunnel" and report.lines[5].group == "Police" and report.lines[0].months.size() == 12, str(report.lines[0]))
+	assert(report.funds == float(city.funds()) and report.yearEndFunds == report.funds + report.estimate
+		and report.recordedMonths == float(city.current_month()), "The report has the totals of the Budget window")
+	assert(report.bonds.count == 1.0 and report.bonds.outstanding == 10000.0 and report.bonds.rates.size() == 1
+		and report.bonds.nextRate == report.bonds.bankRate + 1.0 and report.lines[4].estimate < 0.0, "A bond has a cost: " + str(report.bonds))
+
+	# a window that draws its content gives its texts
+	var drawn: Array = await _value("\n".join([
+		"const shown = [];",
+		"for (const name of ['Population', 'Industry', 'Neighbors']) {",
+		"  ui.menu('Windows', name); shown.push(ui.texts().join('|')); ui.close();",
+		"}",
+		"shown",
+	]))
+	assert(str(drawn[0]).contains("Work Force") and str(drawn[1]).contains("Textiles: ratio 0, tax rate 7%")
+		and str(drawn[2]).contains(str(nation.neighbors[0].name)) and str(drawn[2]).contains("Nat. Pop"), str(drawn))
+
+	# the newspaper: its content, and the menu bar does not work under it
+	assert((await _value("city.newspaper()")) == null, "No paper shows")
+	var paper: Dictionary = await _value("ui.menu('Newspaper', city.newspapers[0]); await game.frames(2); city.newspaper()")
+	assert(paper.title == (await _value("city.newspapers[0]")) and paper.stories.size() == 5 and not str(paper.stories[0].headline).is_empty()
+		and str(paper.date).contains(str(city.current_year())) and paper.weather.has("article") and paper.opinion.has("headline"), str(paper.title))
+	assert((await _value("ui.texts()")).has(paper.stories[1].headline), "The texts of the newspaper window hold the stories")
+	assert(str((await _eval("ui.menu('Windows', 'Budget')")).error).contains("waits for an answer"), "A modal window stops the menu bar")
+	assert(str((await _eval("game.action('window_budget')")).error).contains("waits for an answer"), "A modal window stops the actions")
+	assert((await _value("ui.close(); city.newspaper()")) == null)
+
+	var preferences: Dictionary = await _value("game.preferences")
+	assert(preferences.defaultMayorName == main.preferences.default_mayor_name and preferences.musicVolume == main.preferences.music_volume
+		and not preferences.has("controlBindings"), "preferences gives the settings in use")
 
 
 func _check_interface() -> void:
@@ -315,7 +380,7 @@ func _check_mcp() -> void:
 	assert((await _mcp({"jsonrpc": "2.0", "method": "notifications/initialized"})).status == 202, "A notification has no answer")
 	var listed := await _mcp({"jsonrpc": "2.0", "id": "list", "method": "tools/list"})
 	var names: Array = listed.data.result.tools.map(func(tool: Dictionary) -> String: return tool.name)
-	assert(listed.data.id == "list" and names == ["eval", "state", "screenshot", "city_image", "guide"], str(names))
+	assert(listed.data.id == "list" and names == ["eval", "state", "screenshot", "city_image", "control_image", "guide"], str(names))
 	var called := await _mcp({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": {"name": "eval", "arguments": {"source": "console.log('noted'); city.name"}}})
 	assert(called.data.result.content[0].text == "\"Playtown\"\n\nConsole:\nnoted" and not bool(called.data.result.isError))
@@ -335,3 +400,52 @@ func _check_mcp() -> void:
 	var unknown := await _mcp({"jsonrpc": "2.0", "id": 6, "method": "resources/list"})
 	assert(unknown.data.error.code == -32601.0)
 	assert((await _request(HTTPClient.METHOD_GET, "/mcp")).status == 405, "The server offers no event stream")
+
+
+# a control that draws its content gives its picture and the values to use it: the SCURK editor
+func _check_drawn_controls() -> void:
+	assert((await _request(HTTPClient.METHOD_GET, "/control-image")).status == 400, "The city screen has no control with a picture")
+	var controls: Array = await _value("\n".join([
+		"game.mainMenu(); ui.press('SCURK'); await game.frames(4);",
+		"var drawn = (name) => ui.controls().find((control) => control.name === name);",
+		"[game.state().screen, drawn('PixelCanvas'), drawn('Colors')]",
+	]))
+	var canvas: Dictionary = controls[1]
+	var colors: Dictionary = controls[2]
+	assert(controls[0] == "scurk" and bool(canvas.image) and bool(canvas.data.editable) and canvas.data.spriteWidth > 0.0
+		and colors.data.columns == 16.0 and colors.data.indices.size() == colors.data.colors.size() and not colors.has("image"), str(canvas))
+	var before := await _request(HTTPClient.METHOD_GET, "/control-image?target=PixelCanvas")
+	var first := Image.new()
+	assert(before.status == 200 and before.type == "image/png" and first.load_png_from_buffer(before.body) == OK
+		and first.get_width() == int(canvas.data.spriteWidth) and first.get_height() == int(canvas.data.spriteHeight))
+	assert((await _request(HTTPClient.METHOD_GET, "/control-image?target=Colors")).status == 400, "The palette has no picture")
+
+	# a click on a palette cell selects its color, and a click on the canvas paints a pixel with it
+	var slot := 40
+	var point := Vector2i(int(canvas.data.spriteWidth) / 2, int(canvas.data.spriteHeight) - 12)
+	var path := folder.path_join("canvas.png")
+	var painted: Array = await _value("\n".join([
+		"const colors = drawn('Colors').data, canvas = drawn('PixelCanvas').data;",
+		"const cell = (colors.end.x - colors.origin.x) / colors.columns;",
+		"input.click(colors.origin.x + (%d %% 16 + 0.5) * cell, colors.origin.y + (Math.floor(%d / 16) + 0.5) * cell);" % [slot, slot],
+		"const size = (canvas.end.x - canvas.origin.x) / canvas.spriteWidth;",
+		"input.click(canvas.origin.x + (%d + 0.5) * size, canvas.origin.y + (%d + 0.5) * size);" % [point.x, point.y],
+		"await game.frames(2);",
+		"[drawn('PixelCanvas').data.colorIndex, ui.image(undefined, %s, { scale: 3 })]" % JSON.stringify(path),
+	]))
+	var second := Image.load_from_file(path)
+	assert(painted[0] == colors.data.indices[slot], "A click on the palette selects the color of the cell: " + str(painted[0]))
+	assert(painted[1].width == first.get_width() * 3.0 and second.get_height() == first.get_height() * 3, "scale makes the picture larger")
+	assert(second.get_pixel(point.x * 3 + 1, point.y * 3 + 1).is_equal_approx(Color.html(colors.data.colors[slot]))
+		and not first.get_pixelv(point).is_equal_approx(Color.html(colors.data.colors[slot])), "The picture shows the painted pixel")
+	second.resize(first.get_width(), first.get_height(), Image.INTERPOLATE_NEAREST)
+	first.set_pixelv(point, second.get_pixelv(point))
+	assert(second.get_data() == first.get_data(), "The click painted one pixel")
+
+	var tool := await _mcp({"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "control_image", "arguments": {"scale": 2}}})
+	var picture := Image.new()
+	assert(tool.data.result.content[0].type == "image" and not bool(tool.data.result.isError)
+		and picture.load_png_from_buffer(Marshalls.base64_to_raw(tool.data.result.content[0].data)) == OK
+		and picture.get_width() == first.get_width() * 2, "The control_image tool returns the picture")
+	var missing := await _mcp({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "control_image", "arguments": {"target": "Nope"}}})
+	assert(bool(missing.data.result.isError))

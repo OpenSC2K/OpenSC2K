@@ -10,7 +10,8 @@ const GameSpeed = preload("res://src/simulation/core/game_speed_controller.gd")
 
 # the functions that only console scripts and the remote API can call
 const RESTRICTED: PackedStringArray = [
-	"game.newCity", "game.open", "game.saveAs", "game.files", "game.mainMenu", "game.quit", "game.settings", "game.debugMode",
+	"game.newCity", "game.open", "game.saveAs", "game.files", "game.mainMenu", "game.quit", "game.settings", "game.preferences",
+	"game.debugMode",
 ]
 const DIFFICULTIES := {"easy": 1, "medium": 2, "hard": 3}
 const CITY_EXTENSIONS: PackedStringArray = ["sc2", "sc2x", "scn"]
@@ -35,6 +36,7 @@ func handlers() -> Dictionary[String, Callable]:
 		"game.mainMenu": _main_menu,
 		"game.quit": _quit,
 		"game.settings": _settings,
+		"game.preferences": _preferences,
 		"game.debugMode": _debug_mode,
 		"sim.suspended": func(_arguments: Array) -> Variant: return suspension(),
 	}
@@ -141,6 +143,11 @@ func _action(arguments: Array) -> Variant:
 
 	if app.controls == null or app.city_menu_bar == null:
 		return fail("The game did not start yet.")
+
+	var blocker := ui_api.blocking_window()
+
+	if not blocker.is_empty():
+		return fail("The window %s waits for an answer. Answer it first: ui.accept(), ui.close() or ui.press()." % blocker)
 
 	return app.controls.run(id)
 
@@ -362,6 +369,23 @@ func _settings(_arguments: Array) -> Variant:
 
 		for key in file.get_section_keys(section):
 			result[section][key] = file.get_value(section, key)
+
+	return result
+
+
+# the settings that the game uses now, also those that the settings file
+# does not hold: { defaultMayorName: 'Mayor', musicVolume: 0.8, ... }
+func _preferences(_arguments: Array) -> Variant:
+	var result := {}
+
+	for property in app.preferences.get_property_list():
+		if int(property.usage) & PROPERTY_USAGE_SCRIPT_VARIABLE == 0:
+			continue
+
+		var value: Variant = app.preferences.get(property.name)
+
+		if typeof(value) in [TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING, TYPE_ARRAY]:
+			result[str(property.name).to_camel_case()] = value
 
 	return result
 

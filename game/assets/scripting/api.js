@@ -198,6 +198,12 @@
       return host('game.settings');
     },
 
+    // the settings that the game uses now: { defaultMayorName, musicVolume, ... }.
+    // the Settings window changes them
+    get preferences() {
+      return host('game.preferences');
+    },
+
     // the debug mode: the Debug menu and the debug tools
     get debugMode() {
       return host('game.debugMode', null);
@@ -371,6 +377,33 @@
       return host('city.census', where === undefined ? null : area(where));
     },
 
+    // the values of the Population window: { population, workforcePercent,
+    // workforceLifeExpectancy, workforceEducation, ages: [{ age, population, lifeExpectancy, education }] }
+    demographics() {
+      return host('city.demographics');
+    },
+
+    // the values of the Industry window: [{ key, name, ratio, taxRate, demand }]
+    industry() {
+      return host('city.industry');
+    },
+
+    // the values of the Neighbors window: { name, population, nationalPopulation, neighbors: [{ name, population, edge }] }
+    neighbors() {
+      return host('city.neighbors');
+    },
+
+    // the names of the papers of the Newspaper menu
+    get newspapers() {
+      return host('city.newspapers');
+    },
+
+    // the paper that shows: { title, date, price, stories: [{ headline, article }], weather, opinion, extra }.
+    // null when no paper shows. ui.menu('Newspaper', city.newspapers[0]) opens a paper
+    newspaper() {
+      return host('city.newspaper');
+    },
+
     // writes an image of the city to a PNG file: exportPng('/tmp/city.png', { size: 'small' }).
     // with an area, the image shows only those tiles: { area: { x: 40, y: 40, width: 12, height: 12 } }
     async exportPng(path, options = {}) {
@@ -382,9 +415,19 @@
   });
 
   const budget = Object.freeze({
-    // { taxes, funding, autoBudget, bonds }
+    // { taxes, funding, industryTaxes, autoBudget, bonds }
     info() {
       return host('budget.info');
+    },
+
+    // the amounts of the Budget window: { year, yearEnd, recordedMonths, funds, yearToDate, estimate,
+    // yearEndFunds, lines: [{ key, name, group, rate, yearToDate, estimate, months }], bonds }
+    report() {
+      return host('budget.report');
+    },
+
+    get industryTaxes() {
+      return host('budget.info').industryTaxes;
     },
 
     get taxes() {
@@ -395,7 +438,7 @@
       return host('budget.info').funding;
     },
 
-    // set({ taxes: { residential: 8 }, funding: { police: 90 }, autoBudget: true })
+    // set({ taxes: { residential: 8 }, funding: { police: 90 }, industryTaxes: { textiles: 5 }, autoBudget: true })
     set(changes) {
       return host('budget.set', changes);
     },
@@ -498,6 +541,13 @@
       const file = path === undefined ? null : String(path);
 
       return wait((token) => host('ui.screenshot', token, file, options.scale || 1));
+    },
+
+    // saves the picture of a control that draws its content, such as the canvas of the
+    // SCURK editor: image('PixelCanvas', '/tmp/tile.png', { scale: 8 }). A headless game can do this.
+    // without a target, the first such control of the top window is used: { path, width, height }
+    image(target, path, options = {}) {
+      return host('ui.image', target === undefined ? null : target, String(path), options.scale || 1);
     },
   });
 

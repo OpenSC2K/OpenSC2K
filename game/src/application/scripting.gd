@@ -38,8 +38,8 @@ const EVENTS := {
 	"disaster.beforeStart": "A menu or a script starts a disaster: { id, name, x, y }. Cancelable.",
 	"disaster.started": "A disaster started: { id, name }.",
 	"disaster.ended": "The disaster ended: { id, name }.",
-	"news": "The simulation sent a news story: { type, argument }.",
-	"notice": "The simulation showed a notice: { id }.",
+	"news": "The simulation sent a news story: { type, argument, name }.",
+	"notice": "The simulation showed a notice: { id, text }.",
 	"budget.prompt": "The yearly budget opens.",
 	"military.proposal": "The military asks for a base.",
 	"game.over": "The game ended, or the scenario was won: { type, funds }.",
@@ -643,10 +643,10 @@ func on_simulation_result(result: SimulationTickResult) -> void:
 		_emit_day(day)
 
 	for item in result.news_items:
-		emit("news", {"type": item.type, "argument": item.argument})
+		emit("news", {"type": item.type, "argument": item.argument, "name": NewspaperDialog.STORY_NAMES.get(item.type, "")})
 
 	for id in result.notice_ids:
-		emit("notice", {"id": id})
+		emit("notice", {"id": id, "text": ApplicationReports.NOTICE_TEXT.get(id, "")})
 
 	for event in result.game_over_events:
 		emit("game.over", {"type": event.type, "funds": event.funds})
