@@ -234,6 +234,32 @@ func _city_has_unsaved_changes() -> bool:
 	return snapshot.is_empty() or snapshot != document_state.saved_city_snapshot
 
 
+func has_unsaved_changes() -> bool:
+	return _city_has_unsaved_changes()
+
+
+## Opens a city file at once, without the prompt for unsaved changes.
+## Returns an empty text, or why the city cannot open. Scripts use this.
+func open_city_now(path: String) -> String:
+	if not app.asset_state.assets_ready:
+		return "The game has no graphics yet."
+
+	var read := _read_city(path)
+
+	if not read.error.is_empty():
+		return read.error
+
+	_activate_read_city(read)
+
+	return "" if document_state.current_document == read.document else app.status_label.text
+
+
+## Saves the city to a path, without the Save As dialog. True when the save
+## finished; a larger SC2X city finishes on a worker thread. Scripts use this.
+func save_city_as(path: String) -> bool:
+	return document_state.current_document != null and _save_copy(path)
+
+
 func request_city_exit(action: String, path := "") -> void:
 	if not _city_has_unsaved_changes():
 		_perform_city_exit(action, path)

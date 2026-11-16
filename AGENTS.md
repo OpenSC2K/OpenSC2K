@@ -17,7 +17,10 @@ Load and save cities that the supplied game can use.
 - Do not write to a supplied city or scenario file. Write tests to a temporary or generated path.
 - Add an automated test for each implemented file-format rule or simulation rule when practical.
 - Use deterministic pseudo-random state in the simulation. Save it when the original format permits this.
-- Use computer-use automation for live Godot input and visual checks.
+- Use the remote API (`tools/remote_game.py`, `docs/remote-api.md`) to play the game
+  from a shell: start cities, build, run the simulation, answer windows, read the map.
+- Use computer-use automation for live Godot input and visual checks that the
+  remote API cannot do.
 - Run Godot tests and live checks with the Dummy audio driver. Automated validation must not play sound.
 - Use Simplified Technical English where practical.
 

@@ -1,0 +1,191 @@
+# Remote API
+
+A program outside the game can play OpenSC2K through a local port. The purpose is
+tests and development with an LLM agent: the agent starts a city, builds, runs the
+simulation, answers each window and reads the result, without control of the mouse
+of the computer. The game can run without a window, or with its window so that a
+person watches what the agent does.
+
+The remote API runs JavaScript in the console script runtime. Thus it has the same
+functions as [scripts](scripting.md), and the functions that control the interface
+and the input. `game/assets/scripting/remote-api.md` is the guide for the agent. The
+game serves it on `/guide`.
+
+- [Start the game](#start-the-game)
+- [Routes](#routes)
+- [Scripts of a request](#scripts-of-a-request)
+- [Model Context Protocol](#model-context-protocol)
+- [What an agent can do](#what-an-agent-can-do)
+- [Headless and windowed games](#headless-and-windowed-games)
+- [Safety](#safety)
+- [Code layout](#code-layout)
+
+## Start the game
+
+The server is off by default. Start it in one of these ways:
+
+- `tools/remote_game.py start` starts the game and waits until the port answers.
+- Start the game with `--api` (port 9240) or `--api=PORT`:
+  `godot --path game -- --api`
+- Type `api` or `api <port>` in the Console. `api off` stops the server.
+
+`tools/remote_game.py` is the shell client:
+
+```sh
+tools/remote_game.py start                 # a headless game
+tools/remote_game.py start --window        # a game with its window
+tools/remote_game.py eval 'game.newCity({ name: "Springfield", seed: 7 })'
+tools/remote_game.py eval - < script.js    # a script from standard input
+tools/remote_game.py state
+tools/remote_game.py screenshot screen.png --scale 0.5
+tools/remote_game.py guide
+tools/remote_game.py stop
+```
+
+`start` uses a disposable profile and the packs in `ext/`: the settings and the
+cities of the player do not change. `--profile player` uses the normal profile.
+`--port` or the environment variable `OPENSC2K_API_PORT` selects another port, thus
+more than one game can run. The game plays no sound. `eval` exits with status 1
+when the script failed.
+
+## Routes
+
+The server listens on `127.0.0.1` only.
+
+| Route | Answer |
+| --- | --- |
+| `GET /` | The routes, as JSON. |
+| `POST /eval` | Runs the JavaScript of the body. The body is the source, or JSON `{ "source": "...", "timeout": 30000 }` with the content type `application/json`. `?timeout=` gives the time in milliseconds for plain source. |
+| `GET /state` | The value of `game.state()`. |
+| `GET /screenshot` | A PNG image of the game window. `?scale=0.5` makes it smaller. A headless game answers 503. |
+| `GET /guide` | The guide for an agent. |
+| `GET /types` | The TypeScript declarations of the API. |
+| `POST /mcp` | The Model Context Protocol. |
+
+The answer of a script:
+
+```json
+{ "ok": true, "value": { "name": "Springfield" }, "console": [{ "level": "log", "text": "..." }] }
+{ "ok": false, "error": "Error: No city is loaded.\n    at ...", "console": [] }
+```
+
+`value` is the value of the last expression as JSON. A value that JSON does not
+have becomes a text; a `Map` becomes its entries; a `Set` and a typed array become
+arrays. `console` holds the output of the script and the warnings and errors of the
+game while the script ran. `timedOut` is true when the promise of the script did not
+settle in time; the script continues in the game.
+
+```sh
+curl -s -X POST http://127.0.0.1:9240/eval -d 'tools.select("Roads", "Road"); tools.apply([30, 30], [40, 30])'
+```
+
+## Scripts of a request
+
+A request runs as console input, with two differences:
+
+- Its source runs in a block. `let`, `const` and `class` names end with the request,
+  thus the next request can declare the same names. `var`, function declarations
+  and the values of `globalThis` stay.
+- It can run as long as its timeout, up to 60 seconds without a pause. A script
+  that waits with `await` does not stop the game: the game draws, and other requests
+  get their answers.
+
+The default timeout is 30 seconds, and the longest is 10 minutes.
+
+## Model Context Protocol
+
+`/mcp` is an MCP server with the Streamable HTTP transport. Each POST holds one
+JSON-RPC message and gets one JSON answer; the server sends no event stream. The
+tools:
+
+| Tool | Use |
+| --- | --- |
+| `eval` | Runs JavaScript: `{ source, timeout_ms }`. Returns the value as JSON text, then the console output. |
+| `state` | Returns `game.state()`. |
+| `screenshot` | Returns a PNG image of the game window: `{ scale }`. |
+| `guide` | Returns the guide. `{ types: true }` adds the TypeScript declarations. |
+
+Start the game, then add the server to the client. For Claude Code:
+
+```sh
+tools/remote_game.py start --window
+claude mcp add --transport http opensc2k http://127.0.0.1:9240/mcp
+```
+
+The game must run before the client connects.
+
+## What an agent can do
+
+| Need | Functions |
+| --- | --- |
+| Know what the game shows | `game.state()`, `ui.windows()`, `ui.controls()`, `ui.texts()` |
+| Start, open and save cities | `game.newCity`, `game.open`, `game.saveAs`, `city.save`, `game.files` |
+| Read the map without an image | `city.textMap`, `city.tile`, `city.query`, `city.region`, `city.find`, `city.census` |
+| Build | `tools.select`, `tools.apply`, `tools.undo` |
+| Run the simulation | `sim.advance`, `sim.runTo`, `sim.speed`, `sim.suspended` |
+| Budget and disasters | `budget.*`, `sim.startDisaster` |
+| Answer windows and use menus | `ui.accept`, `ui.close`, `ui.press`, `ui.set`, `ui.choose`, `ui.menu`, `ui.chooseFile`, `game.action` |
+| All other actions | `input.click`, `input.drag`, `input.key`, `input.text`, `input.scroll`, with `view.screenOf` |
+| Images | `ui.screenshot`, `GET /screenshot`, `city.exportPng` |
+
+[Scripting](scripting.md) describes each function. The `ui` functions use each
+control as the player does: they change the control and send its signals. Thus the
+game runs the same code as after a click. The `input` functions send mouse and key
+events through the input of the engine. Each window of the game is reachable in
+this way, also the Settings window, the Debug window and the SCURK editor, which
+have no functions of their own.
+
+A simulation prompt stops `sim.advance` and `sim.runTo`. Their answer has the
+reason in `stopped`, and `game.state().windows` has the window:
+
+```js
+const run = await sim.advance(400); // { days: 300, date: {...}, stopped: 'prompt: annual budget' }
+ui.accept(); // approves the yearly budget
+```
+
+## Headless and windowed games
+
+| | Headless (`start`) | Windowed (`start --window`) |
+| --- | --- | --- |
+| A person can watch | No | Yes |
+| `GET /screenshot`, `ui.screenshot` | No image | Yes |
+| `city.exportPng`, `city.textMap` | Yes | Yes |
+| `ui` and `input` functions | Yes | Yes |
+| GPU renderer | No | Yes |
+
+A headless game gets a window size of 1280 by 800 for its layout when the server
+starts, thus each control has a place in whole pixels. `start --window` sets
+`view.follow = true`: the view moves to each tile that `tools.apply` changes. A
+headless run does not prove GPU pixel output.
+
+The simulation runs in the same way in both. `sim.advance` runs days as fast as the
+computer can; `sim.speed` and `sim.runTo` run in real time, as for a player.
+
+## Safety
+
+- The server is off until `--api` or the `api` command starts it.
+- It listens on `127.0.0.1`. Other computers cannot connect.
+- It refuses a request whose `Host` header does not name `127.0.0.1` or `localhost`,
+  and each request with an `Origin` header. A web page in a browser on the same
+  computer thus cannot use the port.
+- Each program of the same computer can use the port while it is open. A script can
+  save a city to each path that the game can write, and can close the game. Open the
+  port only for tests and development.
+- Mods cannot use the functions that control the interface, the input and the
+  files; see [The sandbox](mods.md#the-sandbox).
+
+## Code layout
+
+| File | Contents |
+| --- | --- |
+| `game/src/application/remote_api.gd` | `ApplicationRemoteApi`: the routes, the scripts that wait for their value, the window image. |
+| `game/src/application/automation/remote_http_server.gd`, `remote_http_request.gd` | The HTTP server on the main thread. |
+| `game/src/application/automation/remote_mcp.gd` | The MCP route. |
+| `game/src/application/automation/ui_probe.gd`, `ui_operator.gd`, `input_sender.gd` | Read the interface, use its controls, send input events. |
+| `game/src/application/automation/city_text_map.gd` | The city as text. |
+| `game/src/application/scripting_game_api.gd`, `scripting_ui_api.gd`, `scripting_input_api.gd` | The host functions of `game`, `ui` and `input`. |
+| `native/core/scripting` | `Engine::eval_request` runs a request and sends its value as JSON to the host: `request(id, ok, json)`. |
+| `tools/remote_game.py` | The shell client. |
+
+The tests are `remote_api_test`, `ui_automation_test` and `ui_automation_test_native`
+in the `scripting` validation domain.

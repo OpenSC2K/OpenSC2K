@@ -22,6 +22,8 @@ const INSPECTOR_HISTORY := 200
 # a listener can send an event, whose listener can send another one. They
 # nest this deep at most
 const MAX_EMIT_DEPTH := 16
+# settles a promise of api.js: (token, ok, value)
+const SETTLE_FUNCTION := "__gameApi.settle"
 # the events that the game sends: type -> description. "*" listens to all
 const EVENTS := {
 	"city.opened": "A city opened: { name, size, date }.",
@@ -62,6 +64,8 @@ var runtime: ScriptRuntime:
 		return console.runtime if console != null else null
 var last_script_path := ""
 var _handlers: Dictionary[String, Callable] = {}
+# the functions that a mod cannot call: name -> true
+var _restricted: Dictionary[String, bool] = {}
 var _commands: ConsoleCommands
 # the active disaster at the last check, for the started and ended events
 var _disaster := 0
@@ -84,6 +88,9 @@ func _init(application: CityApplication) -> void:
 	api = ApplicationScriptingApi.new(application)
 	mods = ApplicationMods.new(self)
 	_handlers = api.handlers()
+
+	for name in ApplicationScriptingApi.restricted():
+		_restricted[name] = true
 
 
 static func console_storage_path() -> String:
@@ -553,6 +560,14 @@ func _emit_from_script(context: ScriptContext, arguments: Array) -> Variant:
 	return null
 
 
+## Settles the promise of a script that waits for work of the game, such as
+## an image of the window: see `wait` in api.js. With an error text, the
+## promise is rejected.
+func settle(context: ScriptContext, token: int, value: Variant, error := "") -> void:
+	if context != null and context.runtime != null:
+		context.runtime.call_function(SETTLE_FUNCTION, [token, error.is_empty(), error if not error.is_empty() else value])
+
+
 ## True when a script cancelled the event.
 func cancelled(type: String, detail: Dictionary) -> bool:
 	return bool(emit(type, detail, true).get("cancelled", false))
@@ -738,6 +753,12 @@ func _host(name: String, arguments: Array, context: ScriptContext) -> Variant:
 			return _emit_from_script(context, arguments)
 		"mod.info":
 			return context.manifest.info() if context.is_mod() else null
+		"request":
+			# the console runtime answers the requests of the remote API; a mod cannot
+			if not context.is_mod() and arguments.size() == 3:
+				app.remote_api.on_script_result(int(arguments[0]), bool(arguments[1]), str(arguments[2]))
+
+			return null
 		"game.mods":
 			return mods.running_info()
 
@@ -751,7 +772,13 @@ func _host(name: String, arguments: Array, context: ScriptContext) -> Variant:
 
 		return null
 
+	if context.is_mod() and _restricted.has(name):
+		context.runtime.throw_error("A mod cannot use %s. Console scripts and the remote API can." % name)
+
+		return null
+
 	api.take_failure()
+	api.call_state.context = context
 	var value: Variant = handler.call(arguments)
 	var failure := api.take_failure()
 

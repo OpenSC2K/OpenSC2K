@@ -11,13 +11,28 @@ const GameSpeed = preload("res://src/simulation/core/game_speed_controller.gd")
 var city_api: ScriptingCityApi
 var budget_api: ScriptingBudgetApi
 var ui_api: ScriptingUiApi
+var input_api: ScriptingInputApi
+var game_api: ScriptingGameApi
+# the view moves to the tile that a script uses a tool on, when the map does
+# not show it. A person who watches the game then sees what a script does
+var follow := false
 
 
 func _init(application: CityApplication) -> void:
-	super(application, {"failure": ""})
+	super(application, {"failure": "", "context": null})
 	city_api = ScriptingCityApi.new(application, call_state)
 	budget_api = ScriptingBudgetApi.new(application, call_state)
 	ui_api = ScriptingUiApi.new(application, call_state)
+	input_api = ScriptingInputApi.new(application, call_state)
+	game_api = ScriptingGameApi.new(application, call_state)
+	game_api.ui_api = ui_api
+	game_api.describe_tool = tool_info
+
+
+## The functions that a mod cannot call: they use files outside the folder
+## of the mod, or they control the interface and the input of the player.
+static func restricted() -> PackedStringArray:
+	return ScriptingUiApi.RESTRICTED + ScriptingInputApi.RESTRICTED + ScriptingGameApi.RESTRICTED + ScriptingCityApi.RESTRICTED
 
 
 ## The message of the failed call, or an empty text. Clears it.
@@ -59,9 +74,15 @@ func handlers() -> Dictionary[String, Callable]:
 		"view.zoomOut": _view_zoom.bind(false),
 		"view.rotation": func(_arguments: Array) -> Variant: return app.document_state.city.compass_rotation() if need_city() else null,
 		"view.rotate": _view_rotate,
+		"view.follow": func(_arguments: Array) -> Variant: return follow,
+		"view.setFollow": _view_set_follow,
+		"view.screenOf": _view_screen_of,
+		"view.tileAt": _view_tile_at,
+		"view.layers": _view_layers,
+		"view.setLayer": _view_set_layer,
 	}
 
-	for api in [city_api, budget_api, ui_api]:
+	for api in [city_api, budget_api, ui_api, input_api, game_api]:
 		result.merge(api.handlers())
 
 	return result
@@ -339,6 +360,9 @@ func _tools_apply(arguments: Array) -> Variant:
 		if not inside_map(tile):
 			return fail("The tile %d, %d is outside the map." % [tile.x, tile.y])
 
+	if follow:
+		_show_tile(finish)
+
 	var state := ToolEditState.normal(app.document_state.city, app.view_state.overlay_mode, app.tool_state.selected_group,
 		app.tool_state.selected_subtool)
 	var path := selection_path(state.selection, start, finish)
@@ -396,6 +420,114 @@ func _view_rotate(arguments: Array) -> Variant:
 	app.camera_input.rotate_city(not bool(argument(arguments, 0, true)))
 
 	return app.document_state.city.compass_rotation()
+
+
+func _view_set_follow(arguments: Array) -> Variant:
+	follow = bool(argument(arguments, 0, true))
+
+	return follow
+
+
+# moves the view to a tile when the map does not show it
+func _show_tile(tile: Vector2i) -> void:
+	var place: Variant = _view_screen_of([{"x": tile.x, "y": tile.y}])
+
+	if place is Dictionary and not bool(place.visible):
+		app.map_view.center_on_tile(tile)
+
+
+# the scale and the offset from source pixels of the map to pixels of the
+# map control: local = source * scale + offset
+func _map_scale_offset() -> Array:
+	var visible := app.map_view.visible_source_rect()
+	var scale := app.map_view.size.x / visible.size.x if visible.size.x > 0.0 else 1.0
+
+	return [scale, -visible.position * scale]
+
+
+# the place of the center of a tile in pixels of the game window
+func _view_screen_of(arguments: Array) -> Variant:
+	if not need_city():
+		return null
+
+	var tile := point(arguments, 0)
+
+	if not inside_map(tile):
+		return fail("The tile %d, %d is outside the map." % [tile.x, tile.y])
+
+	var polygon := CityIsometricRenderer.tile_polygon(app.document_state.city, tile.x, tile.y)
+
+	if polygon.size() != 4:
+		return null
+
+	var mapping := _map_scale_offset()
+	var local: Vector2 = (polygon[0] + polygon[1] + polygon[2] + polygon[3]) * 0.25 * float(mapping[0]) + mapping[1]
+	var screen := UiProbe.window_transform(app.map_view) * local
+
+	return {"x": roundi(screen.x), "y": roundi(screen.y), "visible": Rect2(Vector2.ZERO, app.map_view.size).has_point(local)}
+
+
+# the tile at a place in pixels of the game window, or null outside the map
+func _view_tile_at(arguments: Array) -> Variant:
+	if not need_city():
+		return null
+
+	var value: Variant = argument(arguments, 0)
+
+	if not value is Dictionary or not is_number(value.get("x")) or not is_number(value.get("y")):
+		return fail("A position is { x, y } in pixels of the game window.")
+
+	var mapping := _map_scale_offset()
+	var local := UiProbe.window_transform(app.map_view).affine_inverse() * Vector2(float(value.x), float(value.y))
+	var tile := CityIsometricRenderer.screen_to_tile(app.document_state.city, (local - mapping[1]) / float(mapping[0]),
+		app.view_state.overlay_mode == CityViewMode.Mode.HEIGHT)
+
+	return {"x": tile.x, "y": tile.y} if inside_map(tile) else null
+
+
+# the layers of the view that show: { buildings, networks, water, trees,
+# signs, vehicles, waterMains, pipes, subways, tunnels }
+func _view_layers(_arguments: Array) -> Variant:
+	var view := app.view_state
+	var result := {}
+
+	# the zones entry is the Zones view, which is not a layer
+	for layer: String in view.surface_visibility:
+		if layer != "zones":
+			result[layer] = bool(view.surface_visibility[layer])
+
+	result.merge({
+		"vehicles": view.show_vehicles, "waterMains": view.show_underground_water_mains, "pipes": view.show_underground_pipes,
+		"subways": view.show_underground_subways, "tunnels": view.show_underground_tunnels,
+	})
+
+	return result
+
+
+# shows or hides a layer of the view, as the View menu does
+func _view_set_layer(arguments: Array) -> Variant:
+	if not need_city():
+		return null
+
+	var layer := str(argument(arguments, 0, ""))
+	var shown := bool(argument(arguments, 1, true))
+
+	match layer:
+		"waterMains":
+			app.menus.set_underground_water_mains_visible(shown)
+		"pipes":
+			app.menus.set_underground_pipes_visible(shown)
+		"subways":
+			app.menus.set_underground_subways_visible(shown)
+		"tunnels":
+			app.menus.set_underground_tunnels_visible(shown)
+		_:
+			if not _view_layers([]).has(layer):
+				return fail("The layer must be one of: %s." % ", ".join(_view_layers([]).keys()))
+
+			app.menus.set_surface_visibility(shown, layer)
+
+	return _view_layers([])
 
 
 func _view_set_mode(arguments: Array) -> Variant:

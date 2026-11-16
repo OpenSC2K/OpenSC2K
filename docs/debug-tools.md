@@ -38,7 +38,9 @@ Other input, and all input with more than one line, runs as JavaScript. The
 console shows its value. `run <path>` runs a script file, `reset` stops all
 scripts, `scripts` shows the state of the script runtime, and `inspect` lets
 Chrome DevTools connect to scripts. Scripts can add their own commands. See
-[Scripting](scripting.md).
+[Scripting](scripting.md). `api [port]` lets other programs, such as an LLM agent,
+control the game on a local port, and `api off` stops that; see
+[Remote API](remote-api.md).
 
 ## Tile Inspector
 

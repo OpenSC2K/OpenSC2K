@@ -92,6 +92,7 @@ See [Import original game files](docs/media-pack-format.md#import-original-game-
 - Translated interface. Korean is the first translation
 - Recent autosaves: while a changed city is open, a copy is saved each minute and kept for ten minutes
 - A JavaScript runtime for mods and developer scripts, with game events, a game API, example mods in `examples/mods`, and a Chrome DevTools console. Mods load from the `mods` folder, each in its own sandbox, and the Mods tab of Settings turns them on and off. See [Scripting](docs/scripting.md) and [Mods](docs/mods.md)
+- A remote API for tests and development with an LLM agent: a local port where a program starts cities, builds, runs the simulation, answers windows and reads the result, in a headless game or in a game with a window. See [Remote API](docs/remote-api.md)
 
 Larger cities and per-tile data maps use `.sc2x` saves: ZIP archives with one raw entry per
 city structure, city names of up to 64 characters, and signs that can share a tile with any

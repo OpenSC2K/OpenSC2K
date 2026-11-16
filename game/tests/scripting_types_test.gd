@@ -8,7 +8,7 @@ const TYPES_PATH := "res://assets/scripting/opensc2k.d.ts"
 # the global of each API object -> its interface in opensc2k.d.ts
 const INTERFACES := {
 	"game": "Game", "game.storage": "", "city": "City", "budget": "Budget", "sim": "Sim", "tools": "Tools", "view": "View",
-	"ui": "Ui", "mod": "Mod", "mod.files": "ModFiles",
+	"ui": "Ui", "input": "GameInput", "mod": "Mod", "mod.files": "ModFiles",
 }
 
 var checks := 0
@@ -51,7 +51,7 @@ func _run() -> void:
 	for type: String in ApplicationScripting.EVENTS:
 		check(events.contains("'%s':" % type) or events.contains("\n  %s:" % type), "opensc2k.d.ts declares the event %s" % type)
 
-	for name in ["game", "city", "budget", "sim", "tools", "view", "ui", "mod"]:
+	for name in ["game", "city", "budget", "sim", "tools", "view", "ui", "input", "mod"]:
 		check(types.contains("declare const %s: " % name), "opensc2k.d.ts declares the global %s" % name)
 
 	runtime.close()

@@ -100,6 +100,8 @@ var updates := ApplicationUpdates.new(preferences)
 var autosave: ApplicationAutosave = ApplicationAutosave.new(self)
 # the JavaScript runtime of mods and developer scripts
 var scripting: ApplicationScripting = ApplicationScripting.new(self)
+# the local port where other programs, such as an LLM agent, play the game
+var remote_api: ApplicationRemoteApi = ApplicationRemoteApi.new(self)
 
 
 func _ready() -> void:
@@ -118,6 +120,7 @@ func _ready() -> void:
 	add_child(console_window)
 	scripting.attach_console(console_window.commands)
 	scripting.apply_command_line(OS.get_cmdline_args() + OS.get_cmdline_user_args())
+	remote_api.attach_console(console_window.commands)
 
 	if asset_state.reference_root.is_empty():
 		asset_state.reference_root = DataPack.default_folder()
@@ -128,6 +131,8 @@ func _ready() -> void:
 	assets.build_reference_import_dialogs()
 	assets.initialize_runtime()
 	updates.check_on_startup()
+	# the port opens when the game can answer
+	remote_api.apply_command_line(OS.get_cmdline_args() + OS.get_cmdline_user_args())
 
 	if not AppPaths.error().is_empty():
 		_show_data_folder_error()
@@ -168,6 +173,7 @@ func _exit_tree() -> void:
 	static_render.stop_render_job()
 	city_png_export.close()
 	autosave.close()
+	remote_api.close()
 	scripting.close()
 
 
@@ -175,6 +181,7 @@ func _process(delta: float) -> void:
 	frame.process(delta)
 	autosave.process(delta)
 	scripting.process(delta)
+	remote_api.process()
 
 
 func _input(event: InputEvent) -> void:

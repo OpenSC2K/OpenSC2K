@@ -57,6 +57,9 @@ func _write_mods() -> void:
 		"attempt('read', () => mod.files.readText('../beta/info.json'));",
 		"attempt('write', () => mod.files.writeText('../escaped.txt', 'x'));",
 		"attempt('emit', () => game.emit('sim.day', {}));",
+		"attempt('control', () => ui.press('Exit'));",
+		"attempt('open', () => game.open('/city.sc2'));",
+		"attempt('state', () => game.state().screen.length);",
 		"mod.files.writeJSON('data/state.json', { id: mod.id, version: mod.version });",
 		"game.storage.set('launches', 1);",
 		"globalThis.seenMods = [];",
@@ -131,6 +134,9 @@ func _check_sandbox(main: CityApplication) -> void:
 	check(problems.contains("read: A mod can use only the files in its own folder"), problems)
 	check(problems.contains("write: A mod can use only the files in its own folder"), problems)
 	check(problems.contains("emit: A mod cannot send the game event sim.day"), problems)
+	check(problems.contains("control: A mod cannot use ui.press") and problems.contains("open: A mod cannot use game.open"),
+		"A mod cannot control the interface or open files: " + problems)
+	check(problems.contains("state: allowed"), "A mod can read the state of the game: " + problems)
 	check(not FileAccess.file_exists(mods_folder.path_join("escaped.txt")), "A mod cannot write outside its folder")
 
 	var state: Variant = JSON.parse_string(FileAccess.get_file_as_string(mods_folder.path_join("alpha/data/state.json")))
