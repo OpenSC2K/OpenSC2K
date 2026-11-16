@@ -38,6 +38,8 @@ interface CityInfo {
   funds: number;
   population: number;
   foundingYear: number;
+  /** The weather that the status bar shows, such as `Chilly`. */
+  weather: string;
   difficulty: number;
   scenario: boolean;
   /** The file of the city, or an empty text. */
@@ -530,6 +532,16 @@ interface GameFiles {
   scenarios: string[];
   saved: string[];
   savedFolder: string;
+  /** The autosaves of the last minutes, in the temporary folder. */
+  autosaves: string[];
+}
+
+/** What the game plays now. A program cannot hear the game. */
+interface AudioState {
+  /** `track` is -1 and `name` is empty when no track was started. */
+  music: { enabled: boolean; playing: boolean; paused: boolean; track: number; name: string };
+  /** `loop` is the id of the sound that repeats, or -1. */
+  sound: { enabled: boolean; loop: number };
 }
 
 /** The info.json fields of a mod. */
@@ -590,6 +602,8 @@ interface GameEventMap {
   'disaster.ended': Disaster;
   news: { type: number; argument: number; name: string };
   notice: { id: number; text: string };
+  /** The game asked for sounds, by their ids. The sound settings can drop a sound. */
+  sound: { ids: number[] };
   'budget.prompt': {};
   'military.proposal': {};
   'game.over': { type: string; funds: number };
@@ -660,6 +674,8 @@ interface Game {
   saveAs(path: string): Promise<string>;
   /** The city files that the game knows. Console scripts only. */
   files(): GameFiles;
+  /** What the game plays now: the music track, and if the music and the sounds are on. */
+  audio(): AudioState;
   /** Shows the main menu, or with false returns from it to the city. Returns the screen. Console scripts only. */
   mainMenu(show?: boolean): GameState['screen'];
   /** Closes the game. Console scripts only. */
@@ -716,6 +732,8 @@ interface City {
   sign(x: number | TileArgument, y?: number): string | null;
   /** Places or changes a sign. An empty text removes it. */
   setSign(x: number, y: number, text: string): true;
+  /** Every sign of the city. */
+  signs(): { x: number; y: number; text: string }[];
   /** The moving objects. */
   things(): Thing[];
   /** Saves the city to its file. Returns the path. */

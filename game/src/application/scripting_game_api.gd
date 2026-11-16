@@ -35,6 +35,7 @@ func handlers() -> Dictionary[String, Callable]:
 		"game.files": _files,
 		"game.mainMenu": _main_menu,
 		"game.quit": _quit,
+		"game.audio": _audio,
 		"game.settings": _settings,
 		"game.preferences": _preferences,
 		"game.debugMode": _debug_mode,
@@ -311,6 +312,7 @@ func _files(_arguments: Array) -> Variant:
 		"scenarios": _city_files(root.path_join("SCENARIO")),
 		"saved": _city_files(AppPaths.path("cities")),
 		"savedFolder": AppPaths.path("cities"),
+		"autosaves": _city_files(app.autosave.directory),
 	}
 
 
@@ -371,6 +373,24 @@ func _settings(_arguments: Array) -> Variant:
 			result[section][key] = file.get_value(section, key)
 
 	return result
+
+
+# what the game plays now: { music: { enabled, playing, paused, track, name }, sound: { enabled, loop } }.
+# A program cannot hear the game; this tells it what a player hears
+func _audio(_arguments: Array) -> Variant:
+	var controller := app.audio_controller
+	var city := app.document_state.city
+
+	if controller == null:
+		return fail("The audio did not start yet.")
+
+	return {
+		"music": {
+			"enabled": city != null and city.music_enabled(), "playing": controller.music_playback_is_active(),
+			"paused": controller.music_paused, "track": controller.current_track_id, "name": controller.current_track_name,
+		},
+		"sound": {"enabled": city != null and city.sound_enabled(), "loop": controller.sound_loop_id},
+	}
 
 
 # the settings that the game uses now, also those that the settings file

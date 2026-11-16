@@ -40,6 +40,7 @@ const EVENTS := {
 	"disaster.ended": "The disaster ended: { id, name }.",
 	"news": "The simulation sent a news story: { type, argument, name }.",
 	"notice": "The simulation showed a notice: { id, text }.",
+	"sound": "The game asked for sounds: { ids }. The sound settings can drop a sound.",
 	"budget.prompt": "The yearly budget opens.",
 	"military.proposal": "The military asks for a base.",
 	"game.over": "The game ended, or the scenario was won: { type, funds }.",
@@ -91,6 +92,8 @@ func _init(application: CityApplication) -> void:
 
 	for name in ApplicationScriptingApi.restricted():
 		_restricted[name] = true
+
+	application.effects_audio.sound_listener = _on_sounds
 
 
 static func console_storage_path() -> String:
@@ -695,6 +698,11 @@ func check_disaster() -> void:
 
 	if active != 0:
 		emit("disaster.started", {"id": active, "name": CityMenuBar.disaster_name(active)})
+
+
+func _on_sounds(events: Array[SoundEvent]) -> void:
+	if listens("sound"):
+		emit("sound", {"ids": events.map(func(event: SoundEvent) -> int: return event.sound_id)})
 
 
 ## Sends budget.changed with the budget values.

@@ -62,6 +62,14 @@ static func set_value(control: Control, value: Variant, submit := false) -> Stri
 		edit.text = str(value)
 		edit.text_changed.emit()
 
+		# a text area has no submit signal: a window that takes Enter in it reads the key
+		if submit:
+			var enter := InputEventKey.new()
+			enter.keycode = KEY_ENTER
+			enter.physical_keycode = KEY_ENTER
+			enter.pressed = true
+			edit.gui_input.emit(enter)
+
 		return ""
 
 	if control is Range and not control is ProgressBar:
@@ -116,13 +124,13 @@ static func choose(control: Control, item: Variant, activate := false) -> String
 
 	if control is TabBar or control is TabContainer:
 		var bar := UiProbe.tab_bar(control)
-		var tab := _find_item(item, bar.tab_count, bar.get_tab_title)
+		var tab := _find_item(item, bar.tab_count, func(index: int) -> String: return UiProbe.tab_text(bar, index))
 
 		if tab < 0:
 			return _no_item(control, item)
 
 		if bar.is_tab_disabled(tab):
-			return "The tab %s is disabled." % bar.get_tab_title(tab)
+			return "The tab %s is disabled." % UiProbe.tab_text(bar, tab)
 
 		control.set("current_tab", tab)
 

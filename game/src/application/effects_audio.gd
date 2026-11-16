@@ -42,6 +42,8 @@ var main_menu: MainMenuControl
 # effect sprite, or null. see ApplicationMovingSprites.effect_occluder_mask
 var occluder_mask: Callable
 # scaled effect sprite images, and their textures with and without occlusion
+# (events: Array[SoundEvent]): called with the sounds that the game asks for, before the sound settings drop any
+var sound_listener := Callable()
 var _effect_images: Dictionary[String, Image] = {}
 var _effect_textures: Dictionary[String, Texture2D] = {}
 # the exhaust flames of each phase under a launching arcology, by view and sprite size
@@ -440,6 +442,9 @@ func play_sound_ids(sound_ids: Array[int]) -> void:
 func play_sound_events(sound_events: Array[SoundEvent], simulation := false) -> void:
 	if document_state.city == null or audio_controller == null:
 		return
+
+	if sound_listener.is_valid() and not sound_events.is_empty():
+		sound_listener.call(sound_events)
 
 	audio_controller.play_sound_events(
 		sound_events, document_state.city.sound_enabled(), view_state.overlay_mode, current_view_size.call(), simulation

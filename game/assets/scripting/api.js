@@ -178,7 +178,12 @@
       return saved;
     },
 
-    // the city files that the game knows: { cities, scenarios, saved, savedFolder }
+    // what the game plays now: { music: { enabled, playing, paused, track, name }, sound: { enabled, loop } }
+    audio() {
+      return host('game.audio');
+    },
+
+    // the city files that the game knows: { cities, scenarios, saved, savedFolder, autosaves }
     files() {
       return host('game.files');
     },
@@ -327,6 +332,11 @@
     },
 
     // places or changes a sign; an empty text removes it
+    // every sign of the city: [{ x, y, text }]
+    signs() {
+      return host('city.signs');
+    },
+
     setSign(x, y, text) {
       return host('city.setSign', point(x, y), String(text));
     },

@@ -64,6 +64,7 @@ city.tile(64, 64); // the stored values, the structure name, the zone name
 city.query(64, 64); // what the Query tool shows
 city.census(); // tiles of each structure and zone, powered and unpowered tiles
 city.find('Police Station'); // [{ x, y, name }]
+city.signs(); // [{ x, y, text }]
 city.region(40, 40, 20, 20); // arrays of stored values for your own analysis
 city.dataMap('pollution'); city.graph('Residents');
 budget.info(); budget.ordinances(); city.demand;
@@ -96,6 +97,8 @@ tools.undo();
 - `changed` false means that nothing was built. `message` tells why.
 - A tool that needs a choice opens a window: a bridge, a tunnel, a connection to a
   neighbor, the team of a stadium. Find it in `game.state().windows` and answer it.
+- A drag of Trees or Water changes the tiles of a line. A drag of Demolish, or of a zone,
+  changes a rectangle. Use one call for each row to fill a rectangle with trees.
 - A zone grows only beside a tile that has power. Connect each zone block to a power
   plant with power lines. Zones need a road, a rail line or a highway within three tiles.
 - Residents come when the city has jobs: give power to the industrial zones first.
@@ -207,6 +210,11 @@ ui.image('PixelCanvas', '/full/path/tile.png', { scale: 4 }); // look at the res
 ## Other functions
 
 - `game.mainMenu()`, `game.quit({ discard: true })`, `game.debugMode = true`.
+- `game.audio()` tells what the game plays: the music track, and if the music and the
+  sounds are on. `game.on('sound', listener)` gets the ids of the sounds.
+- The Console window takes a command: `ui.set(input, 'help', { submit: true })`, where
+  `input` is the id of its text field. Debug mode (`game.debugMode = true`) adds the
+  Debug menu; `ui.texts()` gives the rows of the tables of the Debug window.
 - `game.preferences` gives the settings in use. Change a setting in the Settings window:
   `game.action('settings')`, then `ui.choose('Tabs', 'Audio')` and `ui.set`.
 - `game.wait(ms)`, `game.frames(count)`, `await game.until(() => !sim.suspended)`.

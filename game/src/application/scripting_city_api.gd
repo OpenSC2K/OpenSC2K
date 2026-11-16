@@ -37,6 +37,7 @@ func handlers() -> Dictionary[String, Callable]:
 		"city.rename": _city_rename,
 		"city.sign": _city_sign,
 		"city.setSign": _city_set_sign,
+		"city.signs": _city_signs,
 		"city.things": _city_things,
 		"city.save": _city_save,
 		"city.unsaved": func(_arguments: Array) -> Variant: return app.city_files.has_unsaved_changes(),
@@ -68,6 +69,7 @@ func _city_info(_arguments: Array) -> Variant:
 		"foundingYear": city.founding_year(),
 		"difficulty": city.difficulty(),
 		"scenario": app.simulation_state.simulation_engine.scenario != null,
+		"weather": RciAftermathPhase.WEATHER_NAMES[clampi(city.weather_type(), 0, RciAftermathPhase.WEATHER_NAMES.size() - 1)],
 		"path": app.document_state.current_save_path,
 		"date": {"year": city.current_year(), "month": city.current_month(), "day": city.current_day(), "age": city.age_in_days()},
 		"demand": {"residential": demand.x, "commercial": demand.y, "industrial": demand.z},
@@ -273,6 +275,20 @@ func _city_sign(arguments: Array) -> Variant:
 	var index := city.index_of(tile.x, tile.y)
 
 	return texts[index] if texts.has(index) else null
+
+
+# every sign of the city: [{ x, y, text }]
+func _city_signs(_arguments: Array) -> Variant:
+	if not need_city():
+		return null
+
+	var city := app.document_state.city
+	var texts := city.sign_texts()
+	var indices := texts.keys()
+	indices.sort()
+
+	return indices.map(func(index: int) -> Dictionary:
+		return {"x": index / city.map_size, "y": index % city.map_size, "text": texts[index]})
 
 
 # places, changes or removes (with an empty text) the sign of a tile, as the

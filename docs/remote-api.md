@@ -143,8 +143,8 @@ this way, also the Settings window, the Debug window and the SCURK editor, which
 have no functions of their own.
 
 Some controls draw their content: the charts of the Population, Industry and
-Neighbors windows, the newspaper, and the canvas and the palette of the SCURK
-editor. Such a control has no labels to read. It tells its content to `UiProbe`
+Neighbors windows, the newspaper, the tables of the Debug window, and the canvas
+and the palette of the SCURK editor. Such a control has no labels to read. It tells its content to `UiProbe`
 with three optional functions:
 
 | Function of the control | Scripts get it as |

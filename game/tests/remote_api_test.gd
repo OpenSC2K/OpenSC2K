@@ -289,6 +289,53 @@ func _check_reports() -> void:
 	assert(str((await _eval("game.action('window_budget')")).error).contains("waits for an answer"), "A modal window stops the actions")
 	assert((await _value("ui.close(); city.newspaper()")) == null)
 
+	# the tabs of the Map window show icons: their tooltips name them
+	var tabs: Array = await _value("\n".join([
+		"ui.menu('Windows', 'Map');",
+		"const names = ui.controls().find((control) => control.kind === 'tabs').items.map((item) => item.text);",
+		"ui.choose('CityMapTabs', 'Water');",
+		"const shown = [names, ui.controls().find((control) => control.kind === 'tabs').value, ui.texts().includes('Water Supply')];",
+		"ui.close();",
+		"shown",
+	]))
+	assert(tabs[0].size() == 9 and tabs[0][0] == "City" and tabs[1] == "Water" and tabs[2] == true, "A tab with an icon has a name: " + str(tabs))
+
+	# the tables of the Debug window draw their rows
+	var rows: Array = await _value("\n".join([
+		"game.debugMode = true; ui.menu('Windows', 'Debug'); ui.choose('Tabs', 'Tile Counts'); await game.frames(2);",
+		"const rows = ui.texts(); ui.close(); game.debugMode = false;",
+		"rows",
+	]))
+	assert(rows.any(func(row: String) -> bool: return row.contains(" | Road | ")), "The texts of a debug table hold its rows: " + str(rows))
+
+	# Enter in the text area of the Console window runs the line
+	var answer: Array = await _value("\n".join([
+		"ui.menu('Windows', 'Console');",
+		"ui.set(ui.controls().find((control) => control.type === 'TextEdit').id, 'version', { submit: true });",
+		"const lines = ui.texts(); ui.close();",
+		"lines",
+	]))
+	assert(answer.any(func(line: String) -> bool: return line.contains("> version") and line.contains("OpenSC2K ")),
+		"submit runs a line of the console: " + str(answer))
+
+	var signs: Array = await _value(
+		"city.setSign(site.x + 8, site.y + 4, 'Depot'); city.setSign(site.x + 2, site.y + 5, 'Park'); [city.signs(), site]")
+	assert(signs[0].size() == 2 and signs[0][0] == {"x": signs[1].x + 2.0, "y": signs[1].y + 5.0, "text": "Park"}
+		and signs[0][1].text == "Depot", "signs lists each sign: " + str(signs))
+	assert((await _value("city.info().weather")) == RciAftermathPhase.WEATHER_NAMES[city.weather_type()])
+	assert((await _value("game.files().autosaves")) is Array)
+
+	# a program cannot hear the game: the sounds and the music are values
+	var heard: Array = await _value("\n".join([
+		"const ids = [];",
+		"const stop = game.on('sound', (event) => ids.push(...event.ids));",
+		"tools.select('Roads', 'Road'); tools.apply([site.x + 8, site.y + 4]);",
+		"stop();",
+		"[ids, game.audio()]",
+	]))
+	assert(heard[0].size() > 0 and heard[1].sound.enabled == city.sound_enabled() and heard[1].music.enabled == city.music_enabled()
+		and heard[1].music.has("track"), "A tool asks for a sound: " + str(heard))
+
 	var preferences: Dictionary = await _value("game.preferences")
 	assert(preferences.defaultMayorName == main.preferences.default_mayor_name and preferences.musicVolume == main.preferences.music_volume
 		and not preferences.has("controlBindings"), "preferences gives the settings in use")

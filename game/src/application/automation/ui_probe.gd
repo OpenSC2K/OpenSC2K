@@ -214,9 +214,9 @@ static func control_data(control: Control, kind: String) -> Dictionary:
 				data["disabled"] = not (control as Slider).editable
 		KIND_TABS:
 			var bar := tab_bar(control)
-			data["value"] = bar.get_tab_title(bar.current_tab) if bar.current_tab >= 0 and bar.tab_count > 0 else ""
+			data["value"] = tab_text(bar, bar.current_tab) if bar.current_tab >= 0 and bar.tab_count > 0 else ""
 			data["items"] = range(bar.tab_count).map(func(index: int) -> Dictionary:
-				return {"index": index, "text": bar.get_tab_title(index), "disabled": bar.is_tab_disabled(index)})
+				return {"index": index, "text": tab_text(bar, index), "disabled": bar.is_tab_disabled(index)})
 		KIND_LIST:
 			var list := control as ItemList
 			data["value"] = Array(list.get_selected_items()).map(func(index: int) -> String: return list.get_item_text(index))
@@ -290,6 +290,13 @@ static func tree_item(tree: Tree, index: int) -> TreeItem:
 		item = item.get_next_in_tree()
 
 	return item
+
+
+## The text that names a tab for the player: its title, or the tooltip of a tab that shows only an icon.
+static func tab_text(bar: TabBar, index: int) -> String:
+	var title := bar.get_tab_title(index)
+
+	return title if not title.is_empty() else bar.get_tab_tooltip(index)
 
 
 static func tab_bar(control: Control) -> TabBar:

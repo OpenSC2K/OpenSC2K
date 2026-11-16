@@ -217,7 +217,8 @@ console.log(text); // { outer: [Object] }
 | `game.newCity(options)` *(console)* | Makes the terrain and founds a city, as the New City window does. Returns `game.state()`. See below. |
 | `game.open(path, { discard })` *(console)* | Opens a city or a scenario file. Returns `game.state()`. |
 | `game.saveAs(path)` *(console)* | Saves the city to a path. A promise of the path. |
-| `game.files()` *(console)* | The city files that the game knows: `{ cities, scenarios, saved, savedFolder }`. |
+| `game.files()` *(console)* | The city files that the game knows: `{ cities, scenarios, saved, savedFolder, autosaves }`. |
+| `game.audio()` | What the game plays now: `{ music: { enabled, playing, paused, track, name }, sound: { enabled, loop } }`. A program cannot hear the game. |
 | `game.mainMenu(show)` *(console)* | Shows the main menu, or with `false` returns to the city. |
 | `game.quit({ discard })` *(console)* | Closes the game. |
 | `game.settings` *(console)* | The stored settings: `{ section: { key: value } }`. Change a setting in the Settings window, with the `ui` functions. |
@@ -291,7 +292,7 @@ for (const key of game.storage.keys()) {
 | Member | Use |
 | --- | --- |
 | `city.loaded` | True when a city is open. |
-| `city.info()` | `{ name, mayor, size, funds, population, foundingYear, difficulty, scenario, path, date, demand }`. |
+| `city.info()` | `{ name, mayor, size, funds, population, foundingYear, difficulty, scenario, weather, path, date, demand }`. |
 | `city.name`, `city.mayor`, `city.size`, `city.population` | Single values. `size` is the number of tiles on each map edge. |
 | `city.date` | `{ year, month, day, age }`. A month has 25 days. `age` counts the days from the founding. |
 | `city.demand` | `{ residential, commercial, industrial }`, from -2000 to 2000. |
@@ -306,6 +307,7 @@ for (const key of game.storage.keys()) {
 | `city.rename(name)` | Gives the city a new name. Returns the name. |
 | `city.sign(x, y)` | The text of the sign on a tile, or `null`. |
 | `city.setSign(x, y, text)` | Places or changes a sign, as the Sign tool does. An empty text removes it. Undo reverses it. |
+| `city.signs()` | Every sign of the city: `[{ x, y, text }]`. |
 | `city.things()` | The moving objects: `{ id, type, name, x, y, state }`. |
 | `city.save()` | Saves the city to its file. A new city must be saved once with `game.saveAs` or from the File menu first. |
 | `city.unsaved` | True when the city has changes that its file does not have. It compares the whole city, thus it is slow on a large map. |
@@ -737,6 +739,7 @@ nothing. `game.events` lists the types.
 | `disaster.started`, `disaster.ended` | `id`, `name` | The active disaster changed. |
 | `news` | `type`, `argument`, `name` | The simulation sent a news story. `name` is the subject of the story. |
 | `notice` | `id`, `text` | The simulation shows a notice. |
+| `sound` | `ids` | The game asked for sounds. The sound settings can drop a sound. |
 | `budget.prompt` | | The yearly budget opens. |
 | `military.proposal` | | The military asks for a base. |
 | `game.over` | `type`, `funds` | The game ended, or the scenario was won. |

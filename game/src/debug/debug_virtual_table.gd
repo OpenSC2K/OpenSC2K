@@ -21,6 +21,8 @@ const ELLIPSIS := "…"
 # the field part of a display row: 0 is the record row, n is field n - 1
 const FIELD_BITS := 16
 const FIELD_MASK := (1 << FIELD_BITS) - 1
+# probe_texts gives this many rows at most
+const PROBE_ROWS := 200
 
 var titles: Array = []
 var title_tooltips: Array = []
@@ -228,6 +230,21 @@ func _set_hovered(row: int) -> void:
 	if row != _hovered:
 		_hovered = row
 		_redraw()
+
+
+## The texts of the table for UiProbe: the titles, then one line for each
+## row, at most PROBE_ROWS rows. The table draws them, thus it has no labels.
+func probe_texts() -> PackedStringArray:
+	var result := PackedStringArray([" | ".join(titles.map(func(title: Variant) -> String: return str(title)))])
+
+	for index in mini(display_count(), PROBE_ROWS):
+		var row := display_row(index)
+		result.append(" | ".join(cells_of(row[0], row[1])))
+
+	if display_count() > PROBE_ROWS:
+		result.append("... %d more rows" % (display_count() - PROBE_ROWS))
+
+	return result
 
 
 func set_columns(column_titles: Array, tooltips: Array, widths: Array, locate := -1) -> void:
