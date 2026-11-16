@@ -27,7 +27,8 @@ as JSON.
 2. Read `game.state()`. `status` is the result or the error of the last action.
    `windows` lists the windows that show. `suspended` tells why the simulation waits.
 3. When a window waits for an answer, answer it: `ui.accept()`, `ui.close()` or
-   `ui.press('Button text')`.
+   `ui.press('Button text')`. These also close a panel of the game, such as the
+   query result.
 
 ```js
 game.state();
@@ -58,6 +59,9 @@ opens), `ocean`, `river`, `hills`, `water`, `trees` (0 to 47), `features` and `e
 
 ```js
 city.info(); // name, funds, population, date, demand
+city.cell(64, 64); // each value of one tile: structure, zone, terrain, power, water, data maps, the query text
+city.cells({ x: 40, y: 40, width: 8, height: 8 }); // { cells: [{ x, y, altitude, structure, zone, ... }] }
+city.cells({ x: 40, y: 40, width: 40, height: 20 }, { fields: ['structure', 'zone', 'powered'] });
 city.textMap({ x: 40, y: 40, width: 40, height: 20 }); // { rows, legend }: one character for each tile
 city.textMap(undefined, 'zones'); // the whole map; layers: surface, zones, underground, altitude, power, water
 city.tile(64, 64); // the stored values, the structure name, the zone name
@@ -74,6 +78,12 @@ city.neighbors(); // the Neighbors window: the neighbor cities and the national 
 budget.report(); // the Budget window: the amount of each line, the totals, the bonds
 ```
 
+`GET /city-data?x=64&y=64` (one tile), `GET /city-data?x=40&y=40&width=8&height=8` (an
+area), `GET /city-data` (the whole city) and the MCP `city_data` tool give the same
+data as JSON, without a script. A cell of `city.cells` leaves out its empty values.
+The whole map comes as `columns`: one array for each value, with the tile
+`(x + i, y + j)` at index `j * width + i`. It is large: name the `fields` that you need.
+
 Character `i` of `rows[j]` is the tile `(x + i, y + j)`. Tile coordinates go from 0 to
 `city.size - 1`. On the surface layer, `.` is clear land, `/` a slope, `~` water, `t`
 trees, `=` road, `#` rail, `+` a power line, lower case `r c i` an empty zone, upper
@@ -83,7 +93,7 @@ character.
 ## Build
 
 ```js
-tools.list(); // every tool: { groupName, name, cost, available }
+tools.list(); // every tool: { groupName, name, cost, size, available }
 tools.select('Roads', 'Road');
 tools.apply([30, 30], [40, 30]); // a drag from one tile to another: { changed, cost, message }
 tools.select('Residential', 'Dense Residential');
@@ -96,7 +106,30 @@ tools.undo();
 
 - `changed` false means that nothing was built. `message` tells why.
 - A tool that needs a choice opens a window: a bridge, a tunnel, a connection to a
-  neighbor, the team of a stadium. Find it in `game.state().windows` and answer it.
+  neighbor, the team of a stadium. The result then has `window`, the title of the
+  window, and `changed` is false until the answer. Find the window in
+  `game.state().windows` and answer it: `ui.press('Causeway')`, `ui.accept()`.
+- **Buildings:** `size` is the number of tiles on each edge. A building covers the
+  tiles from `x - floor((size - 1) / 2)` to `x + floor(size / 2)`: a power plant of 4
+  tiles starts one tile before the click. The site must be flat and clear.
+- **Networks:** a drag of Road, Rail, Power Lines, Water Pipes, Subway or Highway
+  builds a line. A highway is 2 tiles wide. An on-ramp goes on a clear tile that has
+  the highway on one side and a road on a side at a right angle to it. A drag that
+  ends on the edge of the map offers a connection to the neighbor. A drag over
+  water offers a bridge. Tunnel: click the foot of a hill.
+- **Under the ground:** Water Pipes and Subway change the view to `underground`. Set
+  `view.mode = 'city'` to return. `city.cell(x, y)` gives `underground` and `piped`.
+- **Special sites:** a marina must cover land and water. A hydro plant goes on a
+  waterfall: a water tile on a slope. `tools.list()` gives the `plant` values of each
+  power plant.
+- **Not available:** `available` false means that the city cannot use the tool now: a
+  reward needs residents, a plant needs its year, Dispatch needs an emergency.
+  `chooser: true` marks an entry that is only a list for the player; select one of
+  the tools after it.
+- **Terrain editor:** `game.newCity({ edit: true })` has the terrain tools. Stretch
+  Terrain needs the height: `tools.apply([x, y], null, { levels: 2 })`. Raise Sea
+  Level and Lower Sea Level do their work when `tools.select` selects them.
+  `ui.set('BrushSizeInput', 5)` sets the brush of Trees, Water and Place Forest.
 - A drag of Trees or Water changes the tiles of a line. A drag of Demolish, or of a zone,
   changes a rectangle. Use one call for each row to fill a rectangle with trees.
 - A zone grows only beside a tile that has power. Connect each zone block to a power

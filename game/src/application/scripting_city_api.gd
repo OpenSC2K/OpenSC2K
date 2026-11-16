@@ -277,18 +277,25 @@ func _city_sign(arguments: Array) -> Variant:
 	return texts[index] if texts.has(index) else null
 
 
-# every sign of the city: [{ x, y, text }]
+# every sign of the city: [{ x, y, text }]. A sign that the game shows at a
+# connection to a neighbor has `connection: true`
 func _city_signs(_arguments: Array) -> Variant:
 	if not need_city():
 		return null
 
 	var city := app.document_state.city
 	var texts := city.sign_texts()
-	var indices := texts.keys()
+	var connections := CityNeighbors.connection_sign_texts(city)
+	var indices := texts.keys() + connections.keys().filter(func(index: int) -> bool: return not texts.has(index))
 	indices.sort()
 
 	return indices.map(func(index: int) -> Dictionary:
-		return {"x": index / city.map_size, "y": index % city.map_size, "text": texts[index]})
+		var sign := {"x": index / city.map_size, "y": index % city.map_size, "text": texts.get(index, connections.get(index, ""))}
+
+		if not texts.has(index):
+			sign["connection"] = true
+
+		return sign)
 
 
 # places, changes or removes (with an empty text) the sign of a tile, as the

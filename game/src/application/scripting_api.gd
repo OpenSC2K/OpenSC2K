@@ -3,7 +3,7 @@ extends ScriptingApiBase
 ## The game functions that scripts call through `__runtime.host(name, ...)`.
 ## game/assets/scripting/api.js wraps them as the script objects. This file
 ## holds `game`, `sim`, `tools` and `view`; ScriptingCityApi, ScriptingBudgetApi,
-## ScriptingReportsApi and ScriptingUiApi hold the others. See docs/scripting.md.
+## ScriptingReportsApi, ScriptingCityDataApi and ScriptingUiApi hold the others. See docs/scripting.md.
 
 const Tools = preload("res://src/tools/shared/tool_catalog.gd")
 const GameSpeed = preload("res://src/simulation/core/game_speed_controller.gd")
@@ -11,6 +11,7 @@ const GameSpeed = preload("res://src/simulation/core/game_speed_controller.gd")
 var city_api: ScriptingCityApi
 var budget_api: ScriptingBudgetApi
 var reports_api: ScriptingReportsApi
+var city_data_api: ScriptingCityDataApi
 var ui_api: ScriptingUiApi
 var input_api: ScriptingInputApi
 var game_api: ScriptingGameApi
@@ -24,6 +25,8 @@ func _init(application: CityApplication) -> void:
 	city_api = ScriptingCityApi.new(application, call_state)
 	budget_api = ScriptingBudgetApi.new(application, call_state)
 	reports_api = ScriptingReportsApi.new(application, call_state)
+	city_data_api = ScriptingCityDataApi.new(application, call_state)
+	city_data_api.city_api = city_api
 	ui_api = ScriptingUiApi.new(application, call_state)
 	input_api = ScriptingInputApi.new(application, call_state)
 	game_api = ScriptingGameApi.new(application, call_state)
@@ -76,20 +79,27 @@ func handlers() -> Dictionary[String, Callable]:
 		"view.setLayer": _view_set_layer,
 	}
 
-	for api in [city_api, budget_api, reports_api, ui_api, input_api, game_api]:
+	for api in [city_api, budget_api, reports_api, city_data_api, ui_api, input_api, game_api]:
 		result.merge(api.handlers())
 
 	return result
 
 
-## The script description of a tool: { group, subtool, groupName, name, cost }.
+## True for an entry that opens a list of tools for the player and builds nothing itself.
+static func is_chooser(group: int, subtool: int) -> bool:
+	return ((group == CityToolIds.Group.POWER and subtool == CityToolIds.Power.PLANTS)
+		or (group == CityToolIds.Group.REWARDS and subtool == CityToolIds.Rewards.ARCOLOGIES))
+
+
+## The script description of a tool: { group, subtool, groupName, name, cost, size }.
 static func tool_info(group: int, subtool: int) -> Dictionary:
 	var tool := Tools.tool(group, subtool)
 
 	if tool == null:
 		return {}
 
-	return {"group": group, "subtool": subtool, "groupName": Tools.group(group).name, "name": tool.name, "cost": tool.cost}
+	return {"group": group, "subtool": subtool, "groupName": Tools.group(group).name, "name": tool.name, "cost": tool.cost,
+		"size": tool.area}
 
 
 ## The tiles of a drag from `start` to `finish`, as the map view selects them
@@ -273,7 +283,18 @@ func _tools_list(_arguments: Array) -> Variant:
 	for group in Tools.GROUPS.size():
 		for subtool in Tools.group(group).tools.size():
 			var info := tool_info(group, subtool)
-			info.available = city != null and ToolAvailability.is_available(city, group, subtool)
+			# the terrain editor does not ask for a year or for residents
+			info.available = (city != null and app.current_tool.group_allowed(group) and app.current_tool.subtool_allowed(group, subtool)
+				and (app.tool_state.landscape_editor or ToolAvailability.is_available(city, group, subtool)))
+
+			if is_chooser(group, subtool):
+				info.chooser = true
+
+			if group == CityToolIds.Group.POWER and Tools.POWER_PLANT_DETAILS.has(subtool):
+				var plant: Tools.PowerPlantDetails = Tools.POWER_PLANT_DETAILS[subtool]
+				info.plant = {"outputMw": plant.output_mw, "gridCapacity": plant.grid_capacity, "pollution": plant.pollution,
+					"serviceLife": plant.service_life, "note": plant.note}
+
 			result.append(info)
 
 	return result
@@ -292,6 +313,10 @@ func _tools_select(arguments: Array) -> Variant:
 
 	if app.tool_state.selected_group == choice.x:
 		app.current_tool.select_subtool(choice.y)
+
+	# Cancel Dispatch is an action: it recalls the units and the tool before it stays selected
+	if app.tool_state.selected_group == choice.x and choice.x == CityToolIds.Group.DISPATCH and choice.y == CityToolIds.Dispatch.RECALL:
+		return tool_info(choice.x, choice.y)
 
 	if app.tool_state.selected_group != choice.x or app.tool_state.selected_subtool != choice.y:
 		return fail("%s cannot be selected now." % Tools.tool(choice.x, choice.y).name)
@@ -354,14 +379,60 @@ func _tools_apply(arguments: Array) -> Variant:
 		if not inside_map(tile):
 			return fail("The tile %d, %d is outside the map." % [tile.x, tile.y])
 
+	if is_chooser(app.tool_state.selected_group, app.tool_state.selected_subtool):
+		return fail("%s is a list of tools and builds nothing. Select one of the tools after it in tools.list()."
+			% Tools.tool(app.tool_state.selected_group, app.tool_state.selected_subtool).name)
+
 	if follow:
 		_show_tile(finish)
 
 	var state := ToolEditState.normal(app.document_state.city, app.view_state.overlay_mode, app.tool_state.selected_group,
 		app.tool_state.selected_subtool)
 	var path := selection_path(state.selection, start, finish)
+	var dragged := start != finish
+	var options: Dictionary = argument(arguments, 2, {}) if argument(arguments, 2, {}) is Dictionary else {}
 
-	return app.city_edits.apply_map_selection(start, finish, path, start != finish)
+	# a brush tool changes the tiles of its brush around each tile of the drag, as on the map
+	if app.map_view.landscape_brush:
+		path = _brush_path(path)
+
+	# Stretch Terrain takes the height of the drag: levels up, or down below zero
+	var stretch := (app.tool_state.landscape_editor and app.tool_state.selected_group == CityToolIds.Group.BULLDOZER
+		and app.tool_state.selected_subtool == CityToolIds.Bulldozer.STRETCH)
+
+	if stretch:
+		if not is_number(options.get("levels")) or int(options.levels) == 0:
+			return fail("Stretch Terrain needs the height of the drag: tools.apply([x, y], null, { levels: 2 }). A level below zero lowers the land.")
+
+		app.map_view.stretch_height_delta = int(options.levels)
+		dragged = true
+
+	var detail: Variant = app.city_edits.apply_map_selection(start, finish, path, dragged)
+
+	if stretch:
+		app.map_view.stretch_height_delta = 0
+
+	var waiting := ui_api.blocking_window()
+
+	# a bridge, a tunnel or a connection asks first: the edit ends when the window has its answer
+	if detail is Dictionary and not waiting.is_empty():
+		detail["window"] = waiting
+
+	return detail
+
+
+# the tiles of the brush around each tile of a path, each tile one time
+func _brush_path(centers: Array[Vector2i]) -> Array[Vector2i]:
+	var path: Array[Vector2i] = []
+	var seen := {}
+
+	for center in centers:
+		for tile in app.map_view.selection.brush_tiles(center):
+			if not seen.has(tile):
+				seen[tile] = true
+				path.append(tile)
+
+	return path
 
 
 func _tools_undo(_arguments: Array) -> Variant:

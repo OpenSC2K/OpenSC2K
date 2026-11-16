@@ -8,6 +8,10 @@ A program such as an LLM agent plays the game with these commands:
   tools/remote_game.py eval 'city.info()'    run JavaScript in the game, print the JSON answer
   tools/remote_game.py eval - < script.js    run a script from standard input
   tools/remote_game.py state                 print game.state()
+  tools/remote_game.py city-data --cell 40 40
+                                             print each value of one tile as JSON
+  tools/remote_game.py city-data --area 40 40 8 8 --fields structure,zone
+                                             print the tiles of an area; without --area the whole city
   tools/remote_game.py screenshot out.png    save an image of the game window
   tools/remote_game.py city-image out.png --area 40 40 12 12
                                              save an image of some tiles; a headless game can do this
@@ -202,6 +206,20 @@ def city_image(args):
     return save_image(args, '/city-image?' + '&'.join(query))
 
 
+def city_data(args):
+    query = {}
+    if args.cell:
+        query.update(zip(('x', 'y'), args.cell))
+    elif args.area:
+        query.update(zip(('x', 'y', 'width', 'height'), args.area))
+    for name in ('fields', 'format'):
+        if getattr(args, name):
+            query[name] = getattr(args, name)
+    if args.empty:
+        query['empty'] = 'true'
+    return show(args.port, '/city-data' + ('?' + urllib.parse.urlencode(query) if query else ''))
+
+
 def control_image(args):
     return save_image(args, '/control-image?' + urllib.parse.urlencode({'target': args.target, 'scale': args.scale}))
 
@@ -227,6 +245,13 @@ def main():
                         help='Draw only these tiles. The default is the whole city')
     drawer.add_argument('--size', choices=('small', 'medium', 'large'), default='small', help='The size of the tiles')
     drawer.add_argument('--view', default='city', help='city or underground')
+    reader = commands.add_parser('city-data', help='Print the city, an area of it or one tile as JSON')
+    reader.add_argument('--cell', type=int, nargs=2, metavar=('X', 'Y'), help='Each value of this tile')
+    reader.add_argument('--area', type=int, nargs=4, metavar=('X', 'Y', 'WIDTH', 'HEIGHT'),
+                        help='The tiles of this area. The default is the whole city')
+    reader.add_argument('--fields', default='', help='The values to print, with commas: structure,zone,powered')
+    reader.add_argument('--format', choices=('cells', 'columns'), default='', help='One object for each tile, or one array for each value')
+    reader.add_argument('--empty', action='store_true', help='Also print the empty values of each tile')
     painter = commands.add_parser('control-image', help='Save the picture of a control that draws its content')
     painter.add_argument('path')
     painter.add_argument('--target', default='', help='The id or the name of the control. The default is the first one')
@@ -245,6 +270,8 @@ def main():
         return screenshot(args)
     if args.command == 'city-image':
         return city_image(args)
+    if args.command == 'city-data':
+        return city_data(args)
     if args.command == 'control-image':
         return control_image(args)
     return show(args.port, '/' + args.command)

@@ -14,6 +14,9 @@ const RESTRICTED: PackedStringArray = [
 # ui.image makes each picture pixel at most this many pixels wide
 const MAX_IMAGE_SCALE := 16
 const SCREENSHOT_FOLDER := "screenshots"
+# the buttons that answer or close a panel of the game, by their texts
+const PANEL_ACCEPT_BUTTONS: PackedStringArray = ["OK", "Yes"]
+const PANEL_CLOSE_BUTTONS: PackedStringArray = ["Close", "Cancel", "No", "Back"]
 
 # the newest message window
 var last_alert: AcceptDialog
@@ -206,14 +209,17 @@ func _control(target: Variant) -> Control:
 func _matches(scope: Node, text: String) -> PackedStringArray:
 	var exact := PackedStringArray()
 	var close := PackedStringArray()
+	var labeled := PackedStringArray()
 
 	for control in UiProbe.controls(scope):
 		if control.text == text or control.name == text:
 			exact.append(control.id)
 		elif UiOperator.plain_text(control.text) == UiOperator.plain_text(text) or str(control.name).to_lower() == text.to_lower():
 			close.append(control.id)
+		elif UiOperator.plain_text(str(control.get("label", ""))) == UiOperator.plain_text(text):
+			labeled.append(control.id)
 
-	return exact if not exact.is_empty() else close
+	return exact if not exact.is_empty() else (close if not close.is_empty() else labeled)
 
 
 func _done(error: String) -> Variant:
@@ -326,7 +332,38 @@ func _accept(arguments: Array) -> Variant:
 	if window == null:
 		return null
 
-	return _done(UiOperator.accept(window)) if window is Window else fail("%s has no OK button. Press one of its buttons." % window.name)
+	if window is Window:
+		return _done(UiOperator.accept(window))
+
+	var button := _panel_button(window, PANEL_ACCEPT_BUTTONS)
+
+	return _done(UiOperator.press(button)) if button != null else fail("%s has no OK button. Press one of its buttons: %s." % [
+		window.name, ", ".join(_panel_buttons(window))])
+
+
+# the texts of the buttons of a panel of the game
+func _panel_buttons(panel: Node) -> PackedStringArray:
+	var texts := PackedStringArray()
+
+	for control in UiProbe.controls(panel):
+		if control.kind == UiProbe.KIND_BUTTON and not str(control.text).is_empty():
+			texts.append(control.text)
+
+	return texts
+
+
+# the button of a panel with the first of the texts that one button has, or null
+func _panel_button(panel: Node, texts: PackedStringArray) -> BaseButton:
+	var controls := UiProbe.controls(panel)
+
+	for text in texts:
+		var found := controls.filter(func(control: Dictionary) -> bool:
+			return control.kind == UiProbe.KIND_BUTTON and control.text == text and not bool(control.get("disabled", false)))
+
+		if found.size() == 1:
+			return app.get_tree().root.get_node(NodePath(found[0].id))
+
+	return null
 
 
 func _close(arguments: Array) -> Variant:
@@ -341,10 +378,13 @@ func _close(arguments: Array) -> Variant:
 	if window is Window:
 		return _done(UiOperator.close(window))
 
-	return fail("%s is a panel of the game. Press one of its buttons: %s." % [window.name,
-		", ".join(UiProbe.controls(window).filter(func(control: Dictionary) -> bool:
-			return control.kind == UiProbe.KIND_BUTTON and not str(control.text).is_empty()).map(
-			func(control: Dictionary) -> String: return control.text))])
+	var button := _panel_button(window, PANEL_CLOSE_BUTTONS)
+
+	if button != null:
+		return _done(UiOperator.press(button))
+
+	return fail("%s is a panel of the game without a close button. Press one of its buttons: %s." % [window.name,
+		", ".join(_panel_buttons(window))])
 
 
 # selects a path in the file dialog that shows

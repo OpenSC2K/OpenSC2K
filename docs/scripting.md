@@ -299,6 +299,9 @@ for (const key of game.storage.keys()) {
 | `city.funds` | Get or set the funds. |
 | `city.addFunds(amount)` | Adds a positive or negative amount. Returns the new funds. |
 | `city.tile(x, y)` | The stored values of a tile, or `null` outside the map. See below. |
+| `city.cell(x, y)` | Each value of one tile as data, with names: `{ x, y, altitude, slope, water, structure, structureId, zone, density, underground, undergroundId, powered, needsPower, watered, piped, sign, traffic, pollution, landValue, crime, police, fire, populationDensity, growth, symbol, query }`. `query` is what the Query tool tells: `{ title, kind, altitudeFeet, landValue, crime, pollution, lines, flags, things, text }`. |
+| `city.cells(area, options)` | The same values for each tile of an area, or of the whole map without an area: `{ x, y, width, height, format, fields, cells }`. A cell leaves out its empty values (an empty text, 0, false); `empty: true` keeps them. `fields` selects values. `format: 'columns'` gives `columns`, one array for each value, in place of `cells`; it is the default for more than 4096 tiles. The tile `(x + i, y + j)` is at index `j * width + i`. One answer holds 2,000,000 values at most. |
+| `city.cellFields` | The names of the values of a cell. |
 | `city.data(name, x, y)` | The value of a data map at a tile. |
 | `city.dataMap(name)` | A whole data map: `{ name, size, scale, values, at(x, y) }`. |
 | `city.dataMaps` | The data map names: `traffic`, `pollution`, `landValue`, `crime`, `police`, `fire`, `populationDensity`, `growth`. |
@@ -307,7 +310,7 @@ for (const key of game.storage.keys()) {
 | `city.rename(name)` | Gives the city a new name. Returns the name. |
 | `city.sign(x, y)` | The text of the sign on a tile, or `null`. |
 | `city.setSign(x, y, text)` | Places or changes a sign, as the Sign tool does. An empty text removes it. Undo reverses it. |
-| `city.signs()` | Every sign of the city: `[{ x, y, text }]`. |
+| `city.signs()` | Every sign of the city: `[{ x, y, text }]`. A sign that the game shows at a connection to a neighbor has `connection: true`. |
 | `city.things()` | The moving objects: `{ id, type, name, x, y, state }`. |
 | `city.save()` | Saves the city to its file. A new city must be saved once with `game.saveAs` or from the File menu first. |
 | `city.unsaved` | True when the city has changes that its file does not have. It compares the whole city, thus it is slow on a large map. |
@@ -548,16 +551,24 @@ sim.noDisasters = true;
 
 | Member | Use |
 | --- | --- |
-| `tools.list()` | Every tool: `{ group, subtool, groupName, name, cost, available }`. |
-| `tools.selected` | The selected tool: `{ group, subtool, groupName, name, cost }`. |
+| `tools.list()` | Every tool: `{ group, subtool, groupName, name, cost, size, available }`. `size` is the number of tiles on each edge of the square that the tool builds. `chooser: true` marks an entry that only opens a list of tools for the player, such as Power Plants. A power plant has `plant`: `{ outputMw, gridCapacity, pollution, serviceLife, note }`. In the terrain editor, `available` tells the tools of the editor. |
+| `tools.selected` | The selected tool: `{ group, subtool, groupName, name, cost, size }`. |
 | `tools.select(group, tool)` | Selects a tool by its group and tool name or index, for example `tools.select('Roads', 'Road')`. With one name: a tool name in any group, or a group name, which selects the tool of that group that was used last. The rules of the toolbar apply. |
-| `tools.apply(from, to)` | Uses the selected tool as a drag from one tile to another. Without `to`, it is a click. Returns the `tool.applied` detail. |
+| `tools.apply(from, to, options)` | Uses the selected tool as a drag from one tile to another. Without `to`, it is a click. Returns the `tool.applied` detail. When the tool asks first (a bridge, a tunnel, a connection to a neighbor), `changed` is false and `window` is the title of the window that waits. Stretch Terrain needs `{ levels }`. |
 | `tools.undo()` | Undoes the last edit, as Undo does. False when there is nothing to undo. |
 
 `tools.apply` follows the tool rules, the costs and the prompts of the game. A
 line tool such as Road follows the path that a drag makes: first along the longer
 axis. A zone tool fills the rectangle. A tool that needs a choice, such as a
 bridge, opens its window.
+
+A building covers a square of `size` tiles on each edge. The tile of the click is
+in it: the building covers the tiles from `x - floor((size - 1) / 2)` to
+`x + floor(size / 2)`, and the same for y. A building of 4 tiles thus starts one
+tile before the click, and a building of 2 tiles starts at the click. A brush
+tool (Trees, Water, Place Forest) changes the tiles of its brush around each tile
+of the drag. Cancel Dispatch, Raise Sea Level and Lower Sea Level do their work
+when `tools.select` selects them.
 
 ```js
 // a block of dense residential zones beside a road
@@ -651,13 +662,13 @@ and the [remote API](remote-api.md) can use them.
 | Member | Use |
 | --- | --- |
 | `ui.windows()` | The windows that show, the lowest first: `[{ id, type, title, text, modal, blocking, focused, rect, buttons, items }]`. The first is the game window, with the id `main`. The last takes the input. A full-screen panel of the game, such as the main menu or the query result, is a window too. `blocking` tells that the simulation waits while the window shows. |
-| `ui.controls(window)` | The controls of a window that take input: `[{ id, kind, type, name, text, value, disabled, rect, items, ... }]`. Without a window: the top one. `kind` is `button`, `check`, `option`, `menu`, `text`, `number`, `tabs`, `list`, `tree` or `custom`. A control that draws its content can have `data`, its values for scripts, and `image: true` when `ui.image` can save its picture. |
+| `ui.controls(window)` | The controls of a window that take input: `[{ id, kind, type, name, text, value, disabled, rect, items, ... }]`. Without a window: the top one. `kind` is `button`, `check`, `option`, `menu`, `text`, `number`, `tabs`, `list`, `tree` or `custom`. A control that draws its content can have `data`, its values for scripts, and `image: true` when `ui.image` can save its picture. A control without a name of its own has `label`: the label that the window shows before it. A target can be that label: `ui.set('Police', 80)` in the Budget window. |
 | `ui.texts(window)` | The texts that a window shows, top to bottom, also the texts that a chart or the newspaper draws. |
 | `ui.press(target)` | Presses a button. A check box changes its state. |
 | `ui.set(target, value, { submit })` | Sets a text field, a number or a check box. `submit` also sends Enter in a text field. |
 | `ui.choose(target, item, { activate })` | Chooses an item by its text or its index: an option, a tab, a row of a list or a tree, an item of a menu button. With the id of a popup menu that shows, it chooses an item of that menu. `activate` also sends the double click of a list or a tree. |
 | `ui.menus()`, `ui.menu(...path)` | The menus of the menu bar with their items, and a choice of an item: `ui.menu('File', 'Save City')`. `ui.menu` throws while a modal window shows. |
-| `ui.accept(window)`, `ui.close(window)` | The OK button of a dialog, and the close button of a window. A dialog takes a close as Cancel. Without a window: the top one. |
+| `ui.accept(window)`, `ui.close(window)` | The OK button of a dialog, and the close button of a window. A dialog takes a close as Cancel. Without a window: the top one. On a full-screen panel of the game, such as the query result, they press its OK or its Close button. |
 | `ui.chooseFile(path)` | Selects a full path in the file dialog that shows. |
 | `ui.screen` | The size of the game window in pixels: `{ width, height, headless }`. |
 | `ui.screenshot(path, { scale })` | Saves an image of the game window as a PNG file. A promise of `{ path, width, height }`. Without a path: in the `screenshots` folder of the user data. A headless game has no image. |

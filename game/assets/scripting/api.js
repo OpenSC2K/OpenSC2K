@@ -387,6 +387,23 @@
       return host('city.census', where === undefined ? null : area(where));
     },
 
+    // each value of one tile, and what the Query tool tells about it:
+    // { x, y, altitude, slope, water, structure, zone, density, underground, powered, ..., query }
+    cell(x, y) {
+      return host('city.cell', point(x, y));
+    },
+
+    // the values of each tile of an area, or of the whole map without an area:
+    // cells({ x: 40, y: 40, width: 8, height: 8 }, { fields: ['structure', 'zone'], format: 'cells' })
+    cells(where, options = {}) {
+      return host('city.cells', where === undefined || where === null ? null : area(where), options);
+    },
+
+    // the names of the values of a cell
+    get cellFields() {
+      return host('city.cellFields');
+    },
+
     // the values of the Population window: { population, workforcePercent,
     // workforceLifeExpectancy, workforceEducation, ages: [{ age, population, lifeExpectancy, education }] }
     demographics() {
@@ -775,11 +792,12 @@
       return host('tools.select', group, subtool === undefined ? null : subtool);
     },
 
-    // uses the selected tool from one tile to another, as a drag does
-    apply(from, to) {
+    // uses the selected tool from one tile to another, as a drag does.
+    // Stretch Terrain takes the height of its drag: apply([x, y], null, { levels: 2 })
+    apply(from, to, options = {}) {
       const start = point(from);
 
-      return host('tools.apply', start, to === undefined ? start : point(to));
+      return host('tools.apply', start, to === undefined || to === null ? start : point(to), options);
     },
 
     undo() {

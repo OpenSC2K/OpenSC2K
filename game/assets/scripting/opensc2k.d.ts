@@ -154,6 +154,86 @@ interface Census {
   unpowered: number;
 }
 
+/** The name of a value of a cell. */
+type CellField =
+  | 'altitude' | 'slope' | 'water' | 'structure' | 'structureId' | 'zone' | 'density' | 'underground' | 'undergroundId'
+  | 'powered' | 'needsPower' | 'watered' | 'piped' | 'sign' | 'traffic' | 'pollution' | 'landValue' | 'crime' | 'police'
+  | 'fire' | 'populationDensity' | 'growth' | 'symbol';
+
+/** The values of one tile. `city.cells` leaves out the empty values of a cell: an empty text, 0 and false. */
+interface CityCell {
+  x: number;
+  y: number;
+  /** The level of the land, from 0. */
+  altitude: number;
+  slope?: boolean;
+  /** `''`, `'fresh'` or `'salt'`. */
+  water?: string;
+  /** The name of the structure on the tile: a building, a road, a power line, trees, rubble. */
+  structure?: string;
+  /** The stored id of the structure. */
+  structureId?: number;
+  /** The zone, such as `Residential`. */
+  zone?: string;
+  /** The density of the zone, such as `low-density`. */
+  density?: string;
+  /** What is under the tile: a pipe, a subway, a tunnel. */
+  underground?: string;
+  undergroundId?: number;
+  powered?: boolean;
+  /** True for a tile that uses power. */
+  needsPower?: boolean;
+  watered?: boolean;
+  /** True for a tile with a water pipe. */
+  piped?: boolean;
+  sign?: string;
+  /** The data maps, from 0 to 255. */
+  traffic?: number;
+  pollution?: number;
+  landValue?: number;
+  crime?: number;
+  police?: number;
+  fire?: number;
+  populationDensity?: number;
+  growth?: number;
+  /** The character of the tile on the surface layer of `city.textMap`. */
+  symbol?: string;
+}
+
+/** One tile with each value, and what the Query tool tells about it. */
+interface CityCellDetail extends Required<CityCell> {
+  query?: {
+    title: string;
+    kind: string;
+    altitudeFeet: number;
+    landValue: number;
+    crime: string;
+    pollution: string;
+    /** The lines of a building with its own values, such as the output of a power plant. */
+    lines: string[];
+    flags: string[];
+    things: string[];
+    text: string;
+  };
+}
+
+interface CityCellsOptions {
+  /** The values to return. The default is each value. */
+  fields?: CellField[];
+  /** `cells`: one object for each tile. `columns`: one array for each value. The default is `cells` for 4096 tiles or fewer. */
+  format?: 'cells' | 'columns';
+  /** With `cells`: also return the empty values of each cell. */
+  empty?: boolean;
+}
+
+/** The tiles of an area. A tile (x + i, y + j) is at index `j * width + i` of `cells` and of each column. */
+interface CityCells extends TileArea {
+  format: 'cells' | 'columns';
+  fields: CellField[];
+  cells?: CityCell[];
+  columns?: Partial<Record<CellField, (number | string | boolean)[]>>;
+}
+
 /** The values of the Population window. An age group covers five years. */
 interface Demographics {
   population: number;
@@ -364,10 +444,21 @@ interface ToolInfo {
   groupName: string;
   name: string;
   cost: number;
+  /**
+   * The number of tiles on each edge of the square that the tool builds. A tool with size 1 changes
+   * the tile of a click. A building covers the tiles from `x - floor((size - 1) / 2)` to
+   * `x + floor(size / 2)`, and the same for y. 0 for a tool that builds nothing.
+   */
+  size: number;
 }
 
 interface ToolListItem extends ToolInfo {
+  /** False when the city cannot use the tool now: too early a year, too few residents, or a tool of the terrain editor. */
   available: boolean;
+  /** True for an entry that opens a list of tools for the player, such as Power Plants. It builds nothing: select one of the tools after it. */
+  chooser?: true;
+  /** Power plants only: what the Power Plants window tells. */
+  plant?: { outputMw: number; gridCapacity: string; pollution: number; serviceLife: string; note: string };
 }
 
 type ViewMode =
@@ -584,6 +675,12 @@ interface ToolAppliedDetail {
   command: string;
   cost: number;
   message: string;
+  /**
+   * `tools.apply` only: the title of the window that waits for an answer before the edit ends: the
+   * bridge choice, the tunnel cost or the connection to a neighbor. `changed` is then false. Answer the
+   * window with `ui.press` or `ui.accept`, then read `game.state().status`.
+   */
+  window?: string;
 }
 
 /** The fields of each game event, by type. */
@@ -732,8 +829,8 @@ interface City {
   sign(x: number | TileArgument, y?: number): string | null;
   /** Places or changes a sign. An empty text removes it. */
   setSign(x: number, y: number, text: string): true;
-  /** Every sign of the city. */
-  signs(): { x: number; y: number; text: string }[];
+  /** Every sign of the city. `connection` is true for a sign that the game shows at a connection to a neighbor. */
+  signs(): { x: number; y: number; text: string; connection?: true }[];
   /** The moving objects. */
   things(): Thing[];
   /** Saves the city to its file. Returns the path. */
@@ -751,6 +848,14 @@ interface City {
   find(what: string | number, area?: TileArea): FoundTile[];
   /** The number of tiles of each structure and zone in an area, or in the whole map. */
   census(area?: TileArea): Census;
+  /** Each value of one tile, and what the Query tool tells about it. */
+  cell(x: number | TileArgument, y?: number): CityCellDetail;
+  /**
+   * The values of each tile of an area, or of the whole map without an area, as data. One answer holds
+   * 2,000,000 values at most (tiles times fields): name fewer fields or a smaller area for a large map.
+   */
+  cells(area?: TileArea | null, options?: CityCellsOptions): CityCells;
+  readonly cellFields: CellField[];
   /** The values of the Population window. */
   demographics(): Demographics;
   /** The values of the Industry window. */
@@ -821,8 +926,12 @@ interface Tools {
   readonly selected: ToolInfo;
   /** Selects a tool by its group and tool name or index, or by one tool or group name. */
   select(group: string | number, tool?: string | number): ToolInfo;
-  /** Uses the selected tool as a drag from one tile to another. Without `to`, it is a click. */
-  apply(from: TileArgument, to?: TileArgument): ToolAppliedDetail;
+  /**
+   * Uses the selected tool as a drag from one tile to another. Without `to`, it is a click. A brush tool
+   * (Trees, Water, Place Forest) changes the tiles of its brush around each tile of the drag. Stretch
+   * Terrain of the terrain editor needs `levels`: the height of its drag, below zero to lower the land.
+   */
+  apply(from: TileArgument, to?: TileArgument | null, options?: { levels?: number }): ToolAppliedDetail;
   /** Undoes the last edit. False when there is nothing to undo. */
   undo(): boolean;
 }

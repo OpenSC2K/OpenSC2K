@@ -284,6 +284,44 @@ func control_image(target: Variant, scale: int) -> Dictionary:
 	return app.scripting.api.ui_api.control_png(target, scale)
 
 
+## The script that gives the city as data, from the values of a request:
+## { x, y } is one cell; { x, y, width, height } is an area; without them
+## the whole city, with its main values. `fields` (names with commas, or an
+## array), `format` and `empty` are the options of city.cells.
+static func city_data_source(values: Dictionary) -> String:
+	var has_point := values.has("x") and values.has("y")
+	var has_size := values.has("width") or values.has("height")
+
+	if has_point and not has_size:
+		return "city.cell(%d, %d)" % [int(str(values.x)), int(str(values.y))]
+
+	var options := {}
+	var fields: Variant = values.get("fields")
+
+	if fields is String and not str(fields).is_empty():
+		fields = Array(str(fields).split(",", false)).map(func(name: String) -> String: return name.strip_edges())
+
+	if fields is Array:
+		options["fields"] = fields
+
+	if values.has("format"):
+		options["format"] = str(values.format)
+
+	if values.has("empty"):
+		options["empty"] = str(values.empty).to_lower() in ["true", "1"]
+
+	if not has_point and not has_size:
+		return "({ city: city.info(), census: city.census(), ...city.cells(null, %s) })" % JSON.stringify(options)
+
+	var area := {}
+
+	for key: String in ["x", "y", "width", "height"]:
+		if values.has(key):
+			area[key] = int(str(values[key]))
+
+	return "city.cells(%s, %s)" % [JSON.stringify(area), JSON.stringify(options)]
+
+
 static func city_image_options(values: Dictionary) -> Dictionary:
 	var options := {}
 	var area := {}
@@ -323,6 +361,9 @@ func _handle(request: RemoteHttpRequest) -> void:
 		"/state":
 			run_script(STATE_SOURCE, DEFAULT_TIMEOUT_MSEC, func(result: Dictionary) -> void:
 				request.respond_json_text(200, result_json(result)))
+		"/city-data":
+			run_script(city_data_source(request.query), DEFAULT_TIMEOUT_MSEC, func(result: Dictionary) -> void:
+				request.respond_json_text(200 if bool(result.ok) else 400, result_json(result)))
 		"/screenshot":
 			_handle_screenshot(request)
 		"/city-image":
@@ -356,6 +397,9 @@ func _respond_index(request: RemoteHttpRequest) -> void:
 			"POST /eval": "Run JavaScript with the game API. The body is the source, or JSON { source, timeout }. "
 				+ "Answers { ok, value, error, console }.",
 			"GET /state": "The value of game.state(): the screen, the city, the open windows and what waits for an answer.",
+			"GET /city-data": "The city as JSON, without an image. ?x=40&y=40 gives each value of one cell; "
+				+ "?x=40&y=40&width=8&height=8 the cells of an area; no query the whole city. ?fields=structure,zone "
+				+ "selects values. Answers { ok, value, error }.",
 			"GET /screenshot": "A PNG image of the game window. ?scale=0.5 makes it smaller.",
 			"GET /city-image": "A PNG image of the city, also from a headless game. ?x=40&y=40&width=12&height=12 gives "
 				+ "only those tiles. ?size=small, medium or large is the size of the tiles.",

@@ -117,14 +117,7 @@ func select_tool_group(index: int) -> void:
 	if app.tool_state.terrain_stretch.active:
 		app.map_view.cancel_active_selection()
 
-	if (app.tool_state.landscape_editor and index not in [CityToolIds.Group.BULLDOZER, CityToolIds.Group.LANDSCAPE,
-			CityToolIds.Group.QUERY, CityToolIds.Group.CENTERING]):
-		return
-
-	if index < 0 or index >= Tools.GROUPS.size():
-		return
-
-	if index == CityToolIds.Group.DISPATCH and not ToolAvailability.is_dispatch_enabled(app.document_state.city):
+	if not group_allowed(index):
 		return
 
 	if index != app.tool_state.selected_group:
@@ -141,6 +134,37 @@ func select_tool_group(index: int) -> void:
 	_sync_child_tool_selection()
 	update_edit_state()
 	_emit_selected()
+
+
+## True when the toolbar can show the tools of a group now: the terrain
+## editor has four groups, and the Dispatch group needs an emergency.
+func group_allowed(index: int) -> bool:
+	if (app.tool_state.landscape_editor and index not in [CityToolIds.Group.BULLDOZER, CityToolIds.Group.LANDSCAPE,
+			CityToolIds.Group.QUERY, CityToolIds.Group.CENTERING]):
+		return false
+
+	if index < 0 or index >= Tools.GROUPS.size():
+		return false
+
+	return index != CityToolIds.Group.DISPATCH or ToolAvailability.is_dispatch_enabled(app.document_state.city)
+
+
+## True when a tool of a group can be selected now: a city has no tools of
+## the terrain editor, the terrain editor has no tools of a city, and a debug
+## tool needs the debug mode.
+func subtool_allowed(group: int, index: int) -> bool:
+	if (not app.tool_state.landscape_editor and LandscapeEditorCommand.supports_tool(group, index)
+			and not (group == CityToolIds.Group.LANDSCAPE and index == CityToolIds.Landscape.FOREST)):
+		return false
+
+	if (app.tool_state.landscape_editor
+			and (group not in [CityToolIds.Group.BULLDOZER, CityToolIds.Group.LANDSCAPE,
+			CityToolIds.Group.QUERY, CityToolIds.Group.CENTERING]
+			or (group == CityToolIds.Group.BULLDOZER and index == CityToolIds.Bulldozer.DEZONE)
+			or (group == CityToolIds.Group.QUERY and index != CityToolIds.Query.QUERY))):
+		return false
+
+	return DebugMode.allows_tool(group, index)
 
 
 func _emit_selected() -> void:
@@ -174,18 +198,7 @@ func select_subtool(index: int) -> void:
 	if app.tool_state.terrain_stretch.active:
 		app.map_view.cancel_active_selection()
 
-	if (not app.tool_state.landscape_editor and LandscapeEditorCommand.supports_tool(app.tool_state.selected_group, index)
-			and not (app.tool_state.selected_group == CityToolIds.Group.LANDSCAPE and index == CityToolIds.Landscape.FOREST)):
-		return
-
-	if (app.tool_state.landscape_editor
-			and (app.tool_state.selected_group not in [CityToolIds.Group.BULLDOZER, CityToolIds.Group.LANDSCAPE,
-			CityToolIds.Group.QUERY, CityToolIds.Group.CENTERING]
-			or (app.tool_state.selected_group == CityToolIds.Group.BULLDOZER and index == CityToolIds.Bulldozer.DEZONE)
-			or (app.tool_state.selected_group == CityToolIds.Group.QUERY and index != CityToolIds.Query.QUERY))):
-		return
-
-	if not DebugMode.allows_tool(app.tool_state.selected_group, index):
+	if not subtool_allowed(app.tool_state.selected_group, index):
 		return
 
 	if app.tool_state.selected_group == CityToolIds.Group.DISPATCH and index == CityToolIds.Dispatch.RECALL:

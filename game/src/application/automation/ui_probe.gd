@@ -28,6 +28,8 @@ const KIND_CUSTOM := "custom"
 # a tree or a list shows this many rows to scripts
 const MAX_ROWS := 200
 const MAX_LABEL_LENGTH := 4000
+# nearby_label looks in the row of a control and in the row that holds that row
+const LABEL_LEVELS := 2
 
 
 ## The visible windows, the lowest first: [{ id, type, title, text, modal,
@@ -119,8 +121,48 @@ static func menu_items(menu: PopupMenu) -> Array[Dictionary]:
 static func controls(scope: Node) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	_collect_controls(scope, result)
+	var counts := {}
+
+	for data in result:
+		var key := "%s|%s" % [data.kind, data.text]
+		counts[key] = int(counts.get(key, 0)) + 1
+
+	# a control that code made without a name, and that has no text of its own
+	# or the text of another control, gets the label that the window shows
+	# before it. A control with a name of its own needs no label
+	for data in result:
+		if not str(data.name).begins_with("@"):
+			continue
+
+		if str(data.text).is_empty() or data.kind == KIND_OPTION or int(counts["%s|%s" % [data.kind, data.text]]) > 1:
+			var label := nearby_label(scope.get_tree().root.get_node(NodePath(data.id)))
+
+			if not label.is_empty() and label != data.text:
+				data["label"] = label
 
 	return result
+
+
+## The text of the nearest label before a control: in its row, or before its
+## row. A window names a field, or the buttons of a row, with such a label.
+static func nearby_label(control: Node) -> String:
+	var node := control
+
+	for _level in LABEL_LEVELS:
+		var parent := node.get_parent()
+
+		if parent == null or node is Window:
+			break
+
+		for index in range(node.get_index() - 1, -1, -1):
+			var sibling := parent.get_child(index)
+
+			if sibling is Label and (sibling as Label).visible and not (sibling as Label).text.strip_edges().is_empty():
+				return (sibling as Label).text.strip_edges().left(MAX_LABEL_LENGTH)
+
+		node = parent
+
+	return ""
 
 
 static func _collect_controls(node: Node, result: Array[Dictionary]) -> void:
@@ -261,7 +303,9 @@ static func tree_rows(tree: Tree) -> Array[Dictionary]:
 		item = item.get_next_in_tree()
 
 	while item != null and rows.size() < MAX_ROWS:
-		var cells := range(tree.columns).map(func(column: int) -> String: return item.get_text(column))
+		# a cell that shows only an icon has its tooltip as its text
+		var cells := range(tree.columns).map(func(column: int) -> String:
+			return item.get_text(column) if not item.get_text(column).is_empty() else item.get_tooltip_text(column))
 		var depth := 0
 		var parent := item.get_parent()
 

@@ -36,6 +36,27 @@ const TOOLS := [
 		"inputSchema": {"type": "object", "properties": {}},
 	},
 	{
+		"name": "city_data",
+		"description": ("Return the city as JSON data, without an image. Give x and y for each value of one cell: the "
+			+ "structure, the zone, the terrain, power, water, the data maps and what the Query tool tells. Give x, y, width "
+			+ "and height for the cells of an area. Give nothing for the whole city with its main values."),
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"x": {"type": "integer", "description": "The tile column of the cell, or the first column of the area."},
+				"y": {"type": "integer", "description": "The tile row of the cell, or the first row of the area."},
+				"width": {"type": "integer", "description": "The number of tile columns of the area."},
+				"height": {"type": "integer", "description": "The number of tile rows of the area."},
+				"fields": {"type": "array", "items": {"type": "string"},
+					"description": "The values to return, such as structure, zone, powered. The default is each value."},
+				"format": {"type": "string", "enum": ["cells", "columns"],
+					"description": "cells: one object for each cell, without its empty values. columns: one array for each value. "
+						+ "The default is cells for 4096 cells or fewer."},
+				"empty": {"type": "boolean", "description": "With the cells format: also return the empty values of each cell."},
+			},
+		},
+	},
+	{
 		"name": "screenshot",
 		"description": "Return a PNG image of the game window. A headless game has no image.",
 		"inputSchema": {
@@ -152,6 +173,9 @@ static func _call_tool(request: RemoteHttpRequest, id: Variant, parameters: Dict
 				func(result: Dictionary) -> void: request.respond_json(200, _result(id, _script_content(result))))
 		"state":
 			api.run_script(ApplicationRemoteApi.STATE_SOURCE, 0,
+				func(result: Dictionary) -> void: request.respond_json(200, _result(id, _script_content(result))))
+		"city_data":
+			api.run_script(ApplicationRemoteApi.city_data_source(arguments), 0,
 				func(result: Dictionary) -> void: request.respond_json(200, _result(id, _script_content(result))))
 		"screenshot":
 			var scale: Variant = arguments.get("scale", 1.0)

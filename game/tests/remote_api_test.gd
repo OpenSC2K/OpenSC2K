@@ -37,6 +37,8 @@ func _run() -> void:
 	await _check_reports()
 	await _check_interface()
 	await _check_mcp()
+	await _check_city_data()
+	await _check_tools()
 	await _check_drawn_controls()
 
 	main.console_window.commands.execute("api off")
@@ -427,7 +429,7 @@ func _check_mcp() -> void:
 	assert((await _mcp({"jsonrpc": "2.0", "method": "notifications/initialized"})).status == 202, "A notification has no answer")
 	var listed := await _mcp({"jsonrpc": "2.0", "id": "list", "method": "tools/list"})
 	var names: Array = listed.data.result.tools.map(func(tool: Dictionary) -> String: return tool.name)
-	assert(listed.data.id == "list" and names == ["eval", "state", "screenshot", "city_image", "control_image", "guide"], str(names))
+	assert(listed.data.id == "list" and names == ["eval", "state", "city_data", "screenshot", "city_image", "control_image", "guide"], str(names))
 	var called := await _mcp({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": {"name": "eval", "arguments": {"source": "console.log('noted'); city.name"}}})
 	assert(called.data.result.content[0].text == "\"Playtown\"\n\nConsole:\nnoted" and not bool(called.data.result.isError))
@@ -447,6 +449,140 @@ func _check_mcp() -> void:
 	var unknown := await _mcp({"jsonrpc": "2.0", "id": 6, "method": "resources/list"})
 	assert(unknown.data.error.code == -32601.0)
 	assert((await _request(HTTPClient.METHOD_GET, "/mcp")).status == 405, "The server offers no event stream")
+
+
+# the city as data: one cell, an area and the whole map
+func _check_city_data() -> void:
+	var city := main.document_state.city
+	var site: Dictionary = await _value("site")
+	var x := int(site.x)
+	var y := int(site.y)
+	var cell: Dictionary = await _value("city.cell(site.x, site.y)")
+	assert(cell.structure == "Road" and cell.structureId == float(city.building_id(x, y)) and cell.symbol == "="
+		and cell.altitude == float(city.land_altitude(x, y)) and cell.zone == "" and cell.water == "" and cell.slope == false
+		and cell.powered == city.is_powered(x, y) and cell.query.title == "Road" and cell.has("landValue") and cell.has("sign"),
+		"A cell has each value of its tile: " + str(cell))
+	assert(str((await _eval("city.cell(500, 500)")).error).contains("outside"))
+
+	# an area: a cell tells only the values that it has
+	var area: Dictionary = await _value("city.cells({ x: site.x, y: site.y, width: 2, height: 2 })")
+	assert(area.format == "cells" and area.cells.size() == 4 and area.width == 2.0 and area.cells[1].x == x + 1.0 and area.cells[2].y == y + 1.0)
+	assert(area.cells[0].structure == "Road" and not area.cells[0].has("zone") and area.cells[2].zone == "Residential"
+		and area.cells[2].density == "low-density" and not area.cells[2].has("structure"), "A cell leaves out its empty values: " + str(area.cells))
+	var chosen: Dictionary = await _value("city.cells({ x: site.x, y: site.y, width: 2, height: 2 }, { fields: ['zone', 'piped'], empty: true })")
+	assert(chosen.fields == ["zone", "piped"] and chosen.cells[0] == {"x": float(x), "y": float(y), "zone": "", "piped": false}, str(chosen.cells[0]))
+	assert(str((await _eval("city.cells(null, { fields: ['color'] })")).error).contains("Unknown field"))
+
+	# the whole map: one array for each value
+	var whole: Dictionary = (await _eval("city.cells()", 60000)).value
+	var at := y * city.map_size + x
+	assert(whole.format == "columns" and whole.width == float(city.map_size) and whole.columns.structure.size() == city.map_size * city.map_size
+		and whole.columns.structure[at] == "Road" and whole.columns.zone[at + city.map_size] == "Residential"
+		and whole.columns.altitude[at] == float(city.land_altitude(x, y)) and whole.fields.size() == whole.columns.size(),
+		"The whole map comes as columns")
+	var listed: Dictionary = await _value("city.cells({ x: 0, y: 0, width: 3, height: 1 }, { format: 'columns', fields: ['water'] })")
+	assert(listed.columns == {"water": ["salt" if city.is_salt_water(0, 0) else ("fresh" if city.is_water(0, 0) else ""),
+		listed.columns.water[1], listed.columns.water[2]]})
+
+	# the route and the MCP tool give the same data
+	var one: Dictionary = JSON.parse_string((await _request(HTTPClient.METHOD_GET, "/city-data?x=%d&y=%d" % [x, y])).text)
+	assert(bool(one.ok) and one.value.structure == "Road" and one.value.query.title == "Road", "GET /city-data gives a cell")
+	var part: Dictionary = JSON.parse_string(
+		(await _request(HTTPClient.METHOD_GET, "/city-data?x=%d&y=%d&width=2&height=2&fields=zone,structure" % [x, y])).text)
+	assert(part.value.cells.size() == 4 and part.value.fields == ["zone", "structure"] and part.value.cells[2].zone == "Residential")
+	var all_of_it := await _request(HTTPClient.METHOD_GET, "/city-data?fields=symbol")
+	var everything: Dictionary = JSON.parse_string(all_of_it.text)
+	assert(all_of_it.status == 200 and everything.value.city.name == "Playtown" and everything.value.census.structures.Road >= 12.0
+		and everything.value.columns.symbol[at] == "=", "GET /city-data gives the whole city")
+	assert((await _request(HTTPClient.METHOD_GET, "/city-data?x=900&y=900")).status == 400)
+	var tool := await _mcp({"jsonrpc": "2.0", "id": 10, "method": "tools/call",
+		"params": {"name": "city_data", "arguments": {"x": x, "y": y, "width": 2, "height": 1, "fields": ["structure"]}}})
+	assert(JSON.parse_string(tool.data.result.content[0].text).cells[0].structure == "Road" and not bool(tool.data.result.isError))
+
+
+# each kind of tool of the toolbar builds through tools.apply
+func _check_tools() -> void:
+	await _value("\n".join([
+		"game.newCity({ name: 'Toolville', size: 64, seed: 3, year: 2050, ocean: false, river: false, water: 0, hills: 0, trees: 0, discard: true });",
+		"ui.close(); city.funds = 500000; budget.set({ autoBudget: true }); sim.noDisasters = true;",
+		"var use = (group, tool, from, to, options) => { tools.select(group, tool); return tools.apply(from, to, options); };",
+	]))
+	var listed: Array = await _value("tools.list().filter((tool) => ['Coal Power Plant', 'Power Plants', 'Library', 'Road', 'Stretch Terrain'].includes(tool.name))")
+	var by_name := {}
+
+	for tool: Dictionary in listed:
+		by_name[tool.name] = tool
+
+	assert(by_name["Coal Power Plant"].size == 4.0 and by_name["Coal Power Plant"].plant.outputMw == 200.0 and by_name.Library.size == 2.0
+		and by_name.Road.size == 1.0 and bool(by_name["Power Plants"].chooser) and not by_name.Road.has("chooser")
+		and not bool(by_name["Stretch Terrain"].available), "The tool list has the size of each tool: " + str(listed))
+	assert(str((await _eval("use('Power', 'Power Plants', [20, 20])")).error).contains("list of tools"))
+
+	# a building covers a square around the tile of the click
+	var plant: Array = await _value("use('Power', 'Coal Power Plant', [20, 20]); city.find('Coal power plant').map((tile) => [tile.x, tile.y])")
+	assert(plant.size() == 16 and plant.has([19.0, 19.0]) and plant.has([22.0, 22.0]) and not plant.has([18.0, 20.0]), str(plant))
+
+	# networks, zones and the buildings beside them
+	var built: Array = await _value("\n".join([
+		"[use('Roads', 'Highway', [40, 10], [49, 10]).changed, use('Roads', 'Road', [47, 5], [47, 9]).changed,",
+		" use('Roads', 'On-ramp', [46, 9]).changed, use('Rail', 'Rail', [30, 30], [36, 30]).changed, use('Rail', 'Rail Depot', [32, 27]).changed,",
+		" use('Rail', 'Subway', [30, 40], [36, 40]).changed, use('Rail', 'Subway Station', [33, 40]).changed,",
+		" use('Water', 'Water Pipes', [31, 46], [36, 46]).changed, use('Power', 'Power Lines', [23, 20], [26, 20]).changed,",
+		" use('Ports', 'Airport', [10, 40], [12, 44]).changed, use('Industrial', 'Dense Industrial', [10, 50], [12, 52]).changed,",
+		" use('City Services', 'Police Station', [40, 40]).changed, use('Recreation', 'Zoo', [50, 40]).changed,",
+		" use('Landscape', 'Water', [57, 14], [57, 16]).changed, use('Recreation', 'Marina', [56, 15]).changed]",
+	]))
+	assert(not built.has(false) and built.size() == 15, "Each tool builds: " + str(built))
+	var under: Dictionary = await _value("view.mode = 'city'; city.cell(33, 40)")
+	assert(under.structure == "Subway Station" and str(under.underground).contains("Subway") and (await _value("city.cell(32, 46).piped")) == true
+		and (await _value("city.cell(46, 9).structure")) == "Highway Entrance" and (await _value("city.cell(11, 41).zone")) == "Airport",
+		"The cells show what the tools built: " + str(under))
+	var forest: Dictionary = await _value("use('Landscape', 'Place Forest', [20, 50])")
+	assert(forest.tiles > 20.0 and bool(forest.changed), "Place Forest uses its brush: " + str(forest.tiles))
+
+	# a tool that asks first tells the window that waits
+	var edge: Dictionary = await _value("use('Roads', 'Road', [58, 30], [63, 30])")
+	assert(edge.window == "Neighbor Connection" and not bool(edge.changed) and (await _value("game.state().windows.at(-1).buttons")) == ["Keep Road", "Build Connection"],
+		"A connection to a neighbor asks first: " + str(edge))
+	var joined: Array = await _value("ui.press('Build Connection'); [game.state().status, city.signs().filter((sign) => sign.connection).length]")
+	assert(str(joined[0]).contains("neighboring-city connection") and joined[1] >= 1.0, "The answer builds the connection: " + str(joined))
+
+	# the Query panel closes as a window does
+	var queried: Array = await _value("use('Query', 'Query', [20, 20]); const open = game.state().windows.at(-1).type; ui.close(); [open, game.state().windows.length]")
+	assert(queried == ["CityQueryDialog", 0.0], "close closes a panel of the game: " + str(queried))
+
+	# Cancel Dispatch is an action of the Dispatch tools
+	var recalled: Array = await _value("\n".join([
+		"use('City Services', 'Fire Station', [42, 21]); use('Residential', 'Dense Residential', [46, 20], [50, 22]);",
+		"sim.noDisasters = false; sim.startDisaster('Fire', 48, 21);",
+		"const sent = use('Dispatch', 'Fire', [47, 19]).changed;",
+		"const tool = tools.select('Dispatch', 'Cancel Dispatch').name;",
+		"const state = [sent, tool, game.state().status, tools.selected.name];",
+		"sim.endDisaster(); sim.noDisasters = true;",
+		"state",
+	]))
+	assert(recalled == [true, "Cancel Dispatch", "All emergency services recalled.", "Fire"], str(recalled))
+
+	# a field of a window that has no name of its own has the label before it
+	var funded: Array = await _value("\n".join([
+		"ui.menu('Windows', 'Budget');",
+		"const labels = ui.controls().filter((control) => control.kind === 'number').map((control) => control.label);",
+		"ui.set('Police', 80); ui.press('Apply');",
+		"[labels, budget.funding.police]",
+	]))
+	assert(funded[0].has("Police") and funded[0].has("Property taxes") and funded[1] == 80.0, "A label names a field: " + str(funded))
+
+	# the terrain editor has its own tools
+	var editor: Array = await _value("\n".join([
+		"game.newCity({ size: 64, seed: 3, ocean: false, river: false, water: 0, hills: 0, edit: true, discard: true });",
+		"const names = tools.list().filter((tool) => tool.available).map((tool) => tool.name);",
+		"const before = city.tile(20, 20).altitude;",
+		"const raised = use('Bulldozer', 'Stretch Terrain', [20, 20], null, { levels: 2 });",
+		"[names.includes('Stretch Terrain'), names.includes('Road'), raised.changed, city.tile(20, 20).altitude - before]",
+	]))
+	assert(editor == [true, false, true, 2.0], "Stretch Terrain takes the height of its drag: " + str(editor))
+	assert(str((await _eval("use('Bulldozer', 'Stretch Terrain', [20, 20])")).error).contains("levels"))
+	await _value("ui.press('Start City'); ui.close()")
 
 
 # a control that draws its content gives its picture and the values to use it: the SCURK editor

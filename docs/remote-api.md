@@ -37,6 +37,8 @@ tools/remote_game.py start --window        # a game with its window
 tools/remote_game.py eval 'game.newCity({ name: "Springfield", seed: 7 })'
 tools/remote_game.py eval - < script.js    # a script from standard input
 tools/remote_game.py state
+tools/remote_game.py city-data --cell 40 40             # each value of one tile, as JSON
+tools/remote_game.py city-data --area 40 40 8 8 --fields structure,zone
 tools/remote_game.py screenshot screen.png --scale 0.5
 tools/remote_game.py city-image part.png --area 40 40 12 12 --size large
 tools/remote_game.py control-image tile.png --scale 4   # the canvas of the SCURK editor
@@ -59,6 +61,7 @@ The server listens on `127.0.0.1` only.
 | `GET /` | The routes, as JSON. |
 | `POST /eval` | Runs the JavaScript of the body. The body is the source, or JSON `{ "source": "...", "timeout": 30000 }` with the content type `application/json`. `?timeout=` gives the time in milliseconds for plain source. |
 | `GET /state` | The value of `game.state()`. |
+| `GET /city-data` | The city as JSON, without an image. `?x=40&y=40` gives each value of one tile (`city.cell`). `?x=40&y=40&width=8&height=8` gives the tiles of an area, and no query gives the whole city with `city.info()` and `city.census()` (`city.cells`). `fields=structure,zone` selects values; `format` is `cells` or `columns`; `empty=true` keeps the empty values of a cell. The answer is `{ ok, value, error, console }`. |
 | `GET /screenshot` | A PNG image of the game window. `?scale=0.5` makes it smaller. A headless game answers 503. |
 | `GET /city-image` | A PNG image of the city, also from a headless game. `?x=40&y=40&width=12&height=12` gives only those tiles. `size` is `small`, `medium` or `large`; `view` is `city` or `underground`. |
 | `GET /control-image` | A PNG picture of a control that draws its content, such as the canvas of the SCURK editor, also from a headless game. `target` is the id or the name of the control; without it, the first such control of the top window. `scale` makes each pixel larger, from 1 to 16. |
@@ -106,6 +109,7 @@ tools:
 | --- | --- |
 | `eval` | Runs JavaScript: `{ source, timeout_ms }`. Returns the value as JSON text, then the console output. |
 | `state` | Returns `game.state()`. |
+| `city_data` | Returns the city as JSON: `{ x, y }` for one tile, `{ x, y, width, height }` for an area, nothing for the whole city. Also `{ fields, format, empty }`. |
 | `screenshot` | Returns a PNG image of the game window: `{ scale }`. |
 | `city_image` | Returns a PNG image of the city, or of some tiles: `{ x, y, width, height, size, view }`. |
 | `control_image` | Returns a PNG picture of a control that draws its content: `{ target, scale }`. |
@@ -127,7 +131,7 @@ The game must run before the client connects.
 | Know what the game shows | `game.state()`, `ui.windows()`, `ui.controls()`, `ui.texts()` |
 | Read the report windows | `city.demographics`, `city.industry`, `city.neighbors`, `city.newspaper`, `budget.report`, `city.graph`, `city.dataMap` |
 | Start, open and save cities | `game.newCity`, `game.open`, `game.saveAs`, `city.save`, `game.files` |
-| Read the map without an image | `city.textMap`, `city.tile`, `city.query`, `city.region`, `city.find`, `city.census` |
+| Read the map without an image | `GET /city-data`, `city.cell`, `city.cells`, `city.textMap`, `city.query`, `city.find`, `city.census`, `city.signs` |
 | Build | `tools.select`, `tools.apply`, `tools.undo` |
 | Run the simulation | `sim.advance`, `sim.runTo`, `sim.speed`, `sim.suspended` |
 | Budget, industry taxes and disasters | `budget.*`, `sim.startDisaster` |
@@ -153,6 +157,10 @@ with three optional functions:
 | `probe_data() -> Dictionary` | `data` of the control in `ui.controls()`. A `Vector2` is a place in the control; scripts get it in pixels of the game window. |
 | `probe_image() -> Image` | The picture of `ui.image` and `GET /control-image`. The control makes it without the screen. |
 
+A control that code made without a name, and that has no text of its own, gets
+`label`: the text of the label that the window shows before it. A tab or a row of
+a tree that shows only an icon has its tooltip as its text.
+
 Add these functions to a new control that draws text, takes a click on a drawn
 part, or shows a picture that a script must see. `ui.menu` and `game.action` do
 nothing while a modal window shows, as the menu bar and the keys of a player;
@@ -172,7 +180,8 @@ ui.accept(); // approves the yearly budget
 | --- | --- | --- |
 | A person can watch | No | Yes |
 | `GET /screenshot`, `ui.screenshot` | No image | Yes |
-| `GET /city-image`, `city.exportPng`, `city.textMap` | Yes | Yes |
+| `GET /city-data`, `city.cell`, `city.cells`, `city.textMap` | Yes | Yes |
+| `GET /city-image`, `city.exportPng` | Yes | Yes |
 | `GET /control-image`, `ui.image` | Yes | Yes |
 | `ui` and `input` functions | Yes | Yes |
 | GPU renderer | No | Yes |
@@ -215,6 +224,7 @@ computer can; `sim.speed` and `sim.runTo` run in real time, as for a player.
 | `game/src/application/automation/city_text_map.gd` | The city as text. |
 | `game/src/application/scripting_game_api.gd`, `scripting_ui_api.gd`, `scripting_input_api.gd` | The host functions of `game`, `ui` and `input`. |
 | `game/src/application/scripting_reports_api.gd` | The host functions that give the values of the report windows and the newspaper. |
+| `game/src/application/scripting_city_data_api.gd` | `city.cell` and `city.cells`: the city as data. |
 | `native/core/scripting` | `Engine::eval_request` runs a request and sends its value as JSON to the host: `request(id, ok, json)`. |
 | `tools/remote_game.py` | The shell client. |
 
