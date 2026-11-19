@@ -6,7 +6,7 @@ graphics pack: its indexed sprites give the draw geometry, picking, masks,
 traffic, SCURK, and the saved files. The HD art changes only what the city view
 shows.
 
-The [HD Graphics Pack](https://github.com/OpenSC2K/HD-Graphics-Pack) repository
+The [HD Graphics Pack](https://github.com/udangtang7/opensc2k-hd) repository
 builds an HD sprite pack.
 
 ## Select a pack
